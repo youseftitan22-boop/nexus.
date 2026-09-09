@@ -1,0 +1,76 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #0B1613;
+    color: #F5F1E8;
+    overflow-x: hidden;
+    font-family: 'IBM Plex Sans', sans-serif;
+  }
+}
+
+/* Deep Biology Theme Color Utilities */
+:root {
+  --color-abyss: #0B1613;
+  --color-loam: #16241F;
+  --color-marrow: #E8B04B;
+  --color-rust: #C1553B;
+  --color-lichen: #7FA894;
+  --color-bone: #F5F1E8;
+}
+
+.font-display {
+  font-family: 'Fraunces', serif;
+}
+
+.font-body {
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.font-mono {
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+/* Deep Biology Glassmorphism Card Style */
+.glass-card {
+  background: rgba(22, 36, 31, 0.78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(127, 168, 148, 0.16);
+  box-shadow: 0 16px 36px -12px rgba(0, 0, 0, 0.5), 0 1px 2px 0 rgba(127, 168, 148, 0.08);
+}
+
+.glass-card-subtle {
+  background: rgba(22, 36, 31, 0.5);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(127, 168, 148, 0.12);
+}
+
+.glass-pill {
+  background: rgba(11, 22, 19, 0.65);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(127, 168, 148, 0.2);
+}
+
+/* Hide scrollbar for clean carousels */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Reduced Motion: Instant Transitions & Animations */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+
+

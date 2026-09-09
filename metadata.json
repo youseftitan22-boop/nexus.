@@ -1,0 +1,6 @@
+{
+  "name": "Healthlog - Health & Anatomy Dashboard",
+  "description": "Interactive glassmorphic health dashboard featuring dynamic BMI calculator with 3D human anatomical measurements, quick appointment scheduler, step tracker, and 3D organ explorer with live vital metrics.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

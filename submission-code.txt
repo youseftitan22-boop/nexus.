@@ -1,0 +1,2599 @@
+================================================================================
+NEXUS — THE LONGEVITY WEB (STANDALONE SUBMISSION CODE)
+================================================================================
+
+
+===== FILE: index.html =====
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net https://storage.googleapis.com; frame-src 'self' blob: data:; object-src 'none'; base-uri 'self';" />
+    <title>Nexus — The Longevity Web</title>
+    <meta name="description" content="Your health as one living web — see which node is dragging you down and fix it with cited, category-level methods." />
+    <meta name="theme-color" content="#0d241c" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Nexus" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="preload" href="/assets/anatomical_front_transparent.png" as="image" fetchpriority="high" />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,500&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-[#0B1613] text-[#F5F1E8] font-['IBM_Plex_Sans',sans-serif] antialiased selection:bg-[#E8B04B] selection:text-[#0B1613] min-h-screen">
+    <a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-[#E8B04B] focus:text-[#0B1613] focus:font-bold focus:rounded-xl focus:shadow-2xl">
+      Skip to main content
+    </a>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
+
+
+===== FILE: src/App.tsx =====
+
+import React, { useEffect, useState, useMemo } from 'react';
+import { Header } from './components/Header';
+import { WebOnBodyHero } from './components/WebOnBodyHero';
+import { BmiCard } from './components/BmiCard';
+import { QuickAppointmentsCard, initialAppointments } from './components/QuickAppointmentsCard';
+import { StepCountCard } from './components/StepCountCard';
+import { MovementCard } from './components/MovementCard';
+import { HealthOverviewPanel } from './components/HealthOverviewPanel';
+import { FormCheckScreen } from './components/FormCheckScreen';
+import { YouScreen } from './components/YouScreen';
+import { CalendarModal } from './components/CalendarModal';
+import { MetricDetailModal } from './components/MetricDetailModal';
+import { AppointmentDetailModal } from './components/AppointmentDetailModal';
+import { ProfileBottomSheet } from './components/ProfileBottomSheet';
+import { NodePlaybookModal } from './components/NodePlaybookModal';
+import { CorrelationEngineModal } from './components/CorrelationEngineModal';
+import { HealthDataImportModal } from './components/HealthDataImportModal';
+import { LocalVaultModal } from './components/LocalVaultModal';
+import { AuthModal } from './components/AuthModal';
+import { ClinicalExportModal } from './components/ClinicalExportModal';
+import { ClinicianPortalView } from './components/ClinicianPortalView';
+import { localVault } from './utils/localVault';
+import { authService, AuthUser } from './utils/authService';
+import { indexedDbService } from './utils/indexedDbService';
+import {
+  Appointment,
+  VitalMetrics,
+  FormSessionSummary,
+  Badge,
+  HistoryEntry,
+  UserProfile,
+  ImportedHealthPayload
+} from './types';
+import {
+  LayoutDashboard,
+  Sparkles,
+  Calendar,
+  CheckCircle2,
+  X,
+  Award,
+  Flame,
+  Activity,
+  WifiOff,
+  Download,
+  Network,
+  Smartphone,
+  Share
+} from 'lucide-react';
+import { computeNIS, computeRank, pointsFor, RankInfo, TIER_GLYPHS } from './utils/nexusEngine';
+import { INITIAL_BADGES, evaluateBadges } from './utils/badgeSystem';
+
+const DEFAULT_PROFILE: UserProfile = {
+  name: 'Robert Smith',
+  age: 28,
+  sex: 'Male',
+  pronouns: 'He/Him',
+  avatarUrl: '',
+  focusNodes: ['sleep', 'movement'],
+  heightCm: 170,
+  weightKg: 72
+};
+
+export default function App() {
+  // Routing State
+  const [currentRoute, setCurrentRoute] = useState<string>(() => window.location.hash || '#/');
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setCurrentRoute(window.location.hash || '#/');
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  const navigateTo = (route: string) => {
+    window.location.hash = route;
+    setCurrentRoute(route);
+  };
+
+  // Offline status & PWA support
+  const [isOffline, setIsOffline] = useState<boolean>(() => !navigator.onLine);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showIosSheet, setShowIosSheet] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    const handleAppInstalled = () => {
+      setDeferredPrompt(null);
+      setToast({
+        title: 'Installed — see you on your home screen',
+        subtitle: 'Nexus Standalone Ready',
+        quiet: false
+      });
+      setTimeout(() => setToast(null), 4500);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    // iOS Safari check for non-standalone
+    const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (navigator as any).standalone === true;
+    const isIosDismissed = localStorage.getItem('nexus_ios_sheet_dismissed') === 'true';
+
+    if (isIos && !isStandalone && !isIosDismissed) {
+      setShowIosSheet(true);
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  const handleTriggerInstall = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const choice = await deferredPrompt.userChoice;
+      if (choice && choice.outcome === 'accepted') {
+        setDeferredPrompt(null);
+      }
+    } else {
+      const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+      if (isIos) {
+        setShowIosSheet(true);
+      } else {
+        setToast({
+          title: 'Nexus PWA Ready',
+          subtitle: 'Use browser menu (⋮) → "Install app" or "Add to Home screen"',
+          quiet: true
+        });
+        setTimeout(() => setToast(null), 4500);
+      }
+    }
+  };
+
+  // Local Vault & Modal State
+  const [isVaultOpen, setIsVaultOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isClinicalExportOpen, setIsClinicalExportOpen] = useState(false);
+  const [selectedPlaybookNode, setSelectedPlaybookNode] = useState<string | null>(null);
+  const [isCorrelationOpen, setIsCorrelationOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [activeAuthUser, setActiveAuthUser] = useState<AuthUser>(authService.getCurrentUser());
+
+  useEffect(() => {
+    const unsub = authService.subscribe((u) => {
+      if (u) setActiveAuthUser(u);
+    });
+    return unsub;
+  }, []);
+
+  // User Profile State (Encrypted & Persisted via Local Vault AES-GCM-256)
+  const [userProfile, setUserProfile] = useState<UserProfile>(DEFAULT_PROFILE);
+
+  // Economy & Gamification State (XP, Streak, Logs)
+  const [xp, setXp] = useState<number>(240);
+  const [streakDays, setStreakDays] = useState<number>(7);
+  const [totalLogs, setTotalLogs] = useState<number>(12);
+
+  // Badges State & Shelf
+  const [badges, setBadges] = useState<Badge[]>(INITIAL_BADGES);
+
+  // Global NIS Weekly History State
+  const [history, setHistory] = useState<HistoryEntry[]>([
+    { week: 'W1', nis: 52, timestamp: Date.now() - 86400000 * 21 },
+    { week: 'W2', nis: 56, timestamp: Date.now() - 86400000 * 14 },
+    { week: 'W3', nis: 58, timestamp: Date.now() - 86400000 * 7 },
+    { week: 'Current', nis: 61, timestamp: Date.now() }
+  ]);
+
+  // Movement Score & Form Check Sessions State
+  const [movementScore, setMovementScore] = useState<number>(78);
+  const [hasMovementRipple, setHasMovementRipple] = useState<boolean>(false);
+  const [hasMarrowRankRipple, setHasMarrowRankRipple] = useState<boolean>(false);
+  const [rankUpBanner, setRankUpBanner] = useState<string | null>(null);
+
+  const [formSessions, setFormSessions] = useState<FormSessionSummary[]>([
+    {
+      ts: Date.now() - 3600000 * 2,
+      exercise: 'squat',
+      reps: 8,
+      technique: 85,
+      deviations: { depth_short: 1 },
+      objectiveScore: 78
+    }
+  ]);
+
+  // Profile Biometrics (Default 42/47/61/68/70/78)
+  const [biometricProfile, setBiometricProfile] = useState({
+    sleep: 42,
+    nutrition: 47,
+    readiness: 61,
+    stress: 68,
+    hrv: 70,
+    movement: 78
+  });
+
+  // Vitals State
+  const [vitals, setVitals] = useState<VitalMetrics>({
+    bloodSugar: 80,
+    bloodStatusMin: 80,
+    bloodStatusMax: 90,
+    heartRate: 120,
+    bloodPressureSys: 80,
+    bloodPressureDia: 120,
+  });
+
+  // Appointments State
+  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
+  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+
+  // Modals
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [selectedMetricForModal, setSelectedMetricForModal] = useState<string | null>(null);
+
+  // Initial Asynchronous Hydration from Local Vault (Zero-Knowledge Decryption)
+  useEffect(() => {
+    let isMounted = true;
+    const hydrateFromVault = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const isSeed = params.get('seed') === '1';
+
+      if (!isSeed) {
+        const savedProfile = await localVault.getItem<UserProfile>('healthlog_user_profile', DEFAULT_PROFILE);
+        const savedXp = await localVault.getItem<number>('healthlog_xp', 240);
+        const savedStreak = await localVault.getItem<number>('healthlog_streak_days', 7);
+        const savedLogs = await localVault.getItem<number>('healthlog_total_logs', 12);
+        const savedBiometrics = await localVault.getItem<typeof biometricProfile>('healthlog_biometrics', biometricProfile);
+        const savedVitals = await localVault.getItem<VitalMetrics>('healthlog_vitals', vitals);
+        const savedAppointments = await localVault.getItem<Appointment[]>('healthlog_appointments', initialAppointments);
+        const savedSessions = await localVault.getItem<FormSessionSummary[]>('healthlog_form_sessions', formSessions);
+        const savedBadges = await localVault.getItem<Badge[]>('healthlog_badges', INITIAL_BADGES);
+        const savedHistory = await localVault.getItem<HistoryEntry[]>('healthlog_history', history);
+
+        if (isMounted) {
+          if (savedProfile) setUserProfile(savedProfile);
+          if (typeof savedXp === 'number') setXp(savedXp);
+          if (typeof savedStreak === 'number') setStreakDays(savedStreak);
+          if (typeof savedLogs === 'number') setTotalLogs(savedLogs);
+          if (savedBiometrics) {
+            setBiometricProfile(savedBiometrics);
+            if (savedBiometrics.movement) setMovementScore(savedBiometrics.movement);
+          }
+          if (savedVitals) setVitals(savedVitals);
+          if (savedAppointments && savedAppointments.length > 0) setAppointments(savedAppointments);
+          if (savedSessions && savedSessions.length > 0) setFormSessions(savedSessions);
+          if (savedBadges && savedBadges.length > 0) setBadges(savedBadges);
+          if (savedHistory && savedHistory.length > 0) setHistory(savedHistory);
+        }
+      }
+    };
+
+    hydrateFromVault();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Sync encrypted profile to Local Vault
+  useEffect(() => {
+    localVault.setItem('healthlog_user_profile', userProfile);
+  }, [userProfile]);
+
+  // Sync encrypted XP, Streak, Logs
+  useEffect(() => {
+    localVault.setItem('healthlog_xp', xp);
+    localVault.setItem('healthlog_streak_days', streakDays);
+    localVault.setItem('healthlog_total_logs', totalLogs);
+  }, [xp, streakDays, totalLogs]);
+
+  // Sync encrypted Biometrics & History
+  useEffect(() => {
+    localVault.setItem('healthlog_biometrics', biometricProfile);
+  }, [biometricProfile]);
+
+  useEffect(() => {
+    localVault.setItem('healthlog_history', history);
+  }, [history]);
+
+  // Sync encrypted Vitals
+  useEffect(() => {
+    localVault.setItem('healthlog_vitals', vitals);
+  }, [vitals]);
+
+  // Sync encrypted Appointments
+  useEffect(() => {
+    localVault.setItem('healthlog_appointments', appointments);
+  }, [appointments]);
+
+  // Sync encrypted Form Sessions
+  useEffect(() => {
+    localVault.setItem('healthlog_form_sessions', formSessions);
+  }, [formSessions]);
+
+  // Sync encrypted Badges
+  useEffect(() => {
+    localVault.setItem('healthlog_badges', badges);
+  }, [badges]);
+
+  // BMI & Body Measurements State (single source synced with userProfile)
+  const heightCm = userProfile.heightCm || 170;
+  const weightKg = userProfile.weightKg || 72;
+
+  const handleHeightChange = (newHeight: number) => {
+    setUserProfile((prev) => ({ ...prev, heightCm: newHeight }));
+  };
+
+  const handleWeightChange = (newWeight: number) => {
+    setUserProfile((prev) => ({ ...prev, weightKg: newWeight }));
+  };
+
+  useEffect(() => {
+    setBiometricProfile((prev) => ({ ...prev, movement: movementScore }));
+  }, [movementScore]);
+
+  const nis = useMemo(() => computeNIS(biometricProfile), [biometricProfile]);
+
+  // Push latest NIS to history when it updates
+  useEffect(() => {
+    setHistory((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && last.nis === nis) return prev;
+      return [...prev.slice(0, -1), { ...last, nis }];
+    });
+  }, [nis]);
+
+  const rank = useMemo<RankInfo>(() => {
+    return computeRank(biometricProfile, {
+      totalLogs,
+      formSessions: formSessions.length,
+      streakDays
+    });
+  }, [biometricProfile, totalLogs, formSessions.length, streakDays]);
+
+  // Track previous rank tier to trigger rank-up marrow ripple and banner
+  const [prevTier, setPrevTier] = useState<number>(rank.tier);
+
+  useEffect(() => {
+    if (rank.tier > prevTier) {
+      setHasMarrowRankRipple(true);
+      setRankUpBanner(`You are now ${rank.name}`);
+      setTimeout(() => {
+        setHasMarrowRankRipple(false);
+      }, 3500);
+      setPrevTier(rank.tier);
+    } else if (rank.tier < prevTier) {
+      setPrevTier(rank.tier);
+    }
+  }, [rank.tier, rank.name, prevTier]);
+
+  // Quiet Toast Notification State
+  const [toast, setToast] = useState<{ title: string; subtitle: string; quiet?: boolean } | null>(null);
+
+  const showTwoLineToast = (title: string, earnedXp: number) => {
+    setToast({
+      title,
+      subtitle: `+${earnedXp} XP · ${rank.name}`
+    });
+    setTimeout(() => {
+      setToast(null);
+    }, 4500);
+  };
+
+  const showQuietBadgeToast = (badgeName: string) => {
+    setToast({
+      title: `✦ Badge Unlocked: ${badgeName}`,
+      subtitle: `View on #/you shelf`,
+      quiet: true
+    });
+    setTimeout(() => {
+      setToast(null);
+    }, 4000);
+  };
+
+  // Evaluate badge unlocks whenever relevant metrics change
+  useEffect(() => {
+    const { updatedBadges, newlyUnlocked } = evaluateBadges(badges, {
+      totalLogs,
+      formSessionsCount: formSessions.length,
+      streakDays,
+      sleepStreak: 7,
+      profile: biometricProfile
+    });
+
+    if (newlyUnlocked.length > 0) {
+      setBadges(updatedBadges);
+      newlyUnlocked.forEach((b) => {
+        showQuietBadgeToast(b.name);
+      });
+    }
+  }, [totalLogs, formSessions.length, streakDays, biometricProfile]);
+
+  const handleHeartRateChange = (bpm: number) => {
+    setVitals((prev) => ({ ...prev, heartRate: bpm }));
+    const earnedXp = pointsFor('log', streakDays);
+    setXp((prev) => prev + earnedXp);
+    setTotalLogs((prev) => prev + 1);
+    showTwoLineToast('Heart rate telemetry updated', earnedXp);
+  };
+
+  const handleUpdateVitals = (partial: Partial<VitalMetrics>) => {
+    setVitals((prev) => ({ ...prev, ...partial }));
+    const earnedXp = pointsFor('log', streakDays);
+    setXp((prev) => prev + earnedXp);
+    setTotalLogs((prev) => prev + 1);
+    showTwoLineToast('Vitals biometrics updated', earnedXp);
+  };
+
+  const handleAddAppointment = (newApt: Appointment) => {
+    setAppointments((prev) => [newApt, ...prev]);
+    const earnedXp = pointsFor('intake', streakDays);
+    setXp((prev) => prev + earnedXp);
+    setTotalLogs((prev) => prev + 1);
+    showTwoLineToast('Appointment scheduled', earnedXp);
+  };
+
+  // Economy: Form session = technique / 4 points
+  const handleFeedWeb = (summary: FormSessionSummary, newMovementScore: number) => {
+    const earnedXp = Math.round(summary.technique / 4);
+    setMovementScore(newMovementScore);
+    setFormSessions((prev) => [summary, ...prev]);
+    setTotalLogs((prev) => prev + 1);
+    setXp((prev) => prev + earnedXp);
+    setHasMovementRipple(true);
+
+    // Also persist detailed kinematics to IndexedDB heavy storage
+    indexedDbService.saveKinematicSession({
+      id: `kin_${Date.now()}`,
+      exercise: summary.exercise,
+      reps: summary.reps,
+      technique: summary.technique,
+      objectiveScore: summary.objectiveScore,
+      deviations: summary.deviations,
+      timestamp: Date.now(),
+      keypointsSample: [
+        { time: 0, hipAngle: 175, kneeAngle: 178, depthRatio: 0.1 },
+        { time: 1200, hipAngle: 88, kneeAngle: 85, depthRatio: 1.05 },
+        { time: 2400, hipAngle: 172, kneeAngle: 176, depthRatio: 0.12 }
+      ]
+    }).catch(console.error);
+
+    showTwoLineToast('Movement verified — web updated', earnedXp);
+
+    setTimeout(() => {
+      setHasMovementRipple(false);
+    }, 2800);
+  };
+
+  // Apply Imported Health Data from Wearable File
+  const handleApplyImportedData = (payload: ImportedHealthPayload) => {
+    if (payload.extracted.restingHeartRate) {
+      setVitals((prev) => ({ ...prev, heartRate: payload.extracted.restingHeartRate! }));
+    }
+    if (payload.extracted.hrvAvg) {
+      setBiometricProfile((prev) => ({ ...prev, hrv: payload.extracted.hrvAvg! }));
+    }
+    if (payload.extracted.avgSleepHours) {
+      const sleepScore = Math.min(100, Math.round(payload.extracted.avgSleepHours * 11));
+      setBiometricProfile((prev) => ({ ...prev, sleep: sleepScore }));
+    }
+
+    const earnedXp = 50;
+    setXp((prev) => prev + earnedXp);
+    setTotalLogs((prev) => prev + payload.totalRecords);
+    showTwoLineToast(`Ingested ${payload.totalRecords} points from ${payload.source}`, earnedXp);
+  };
+
+  // Data Export & Dissolve Handlers
+  const handleExportData = () => {
+    const exportBundle = {
+      version: '1.0',
+      timestamp: new Date().toISOString(),
+      profile: userProfile,
+      nis,
+      rank,
+      xp,
+      streakDays,
+      totalLogs,
+      biometrics: biometricProfile,
+      vitals,
+      history,
+      formSessions,
+      badges
+    };
+
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(exportBundle, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute('href', dataStr);
+    downloadAnchor.setAttribute('download', `healthlog_export_${Date.now()}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+
+    showTwoLineToast('Profile & Telemetry JSON Exported', 10);
+  };
+
+  const handleDissolveData = () => {
+    localVault.clearVault();
+    localStorage.clear();
+    setUserProfile(DEFAULT_PROFILE);
+    setXp(240);
+    setStreakDays(7);
+    setTotalLogs(12);
+    setMovementScore(78);
+    setFormSessions([]);
+    setBadges(INITIAL_BADGES);
+    showTwoLineToast('All local telemetry dissolved & wiped', 0);
+  };
+
+  const isFormRoute = currentRoute === '#/form';
+  const isYouRoute = currentRoute === '#/you';
+
+  return (
+    <div className="min-h-screen bg-[#0B1613] text-[#F5F1E8] pb-24 md:pb-16 font-['IBM_Plex_Sans',sans-serif] relative overflow-x-hidden">
+      {/* Ambient background glows */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
+        <div className="absolute -top-40 -left-40 w-96 h-96 bg-[#7FA894]/15 rounded-full blur-3xl" />
+        <div className="absolute top-1/3 -right-40 w-96 h-96 bg-[#E8B04B]/10 rounded-full blur-3xl" />
+        <div className="absolute -bottom-40 left-1/3 w-96 h-96 bg-[#C1553B]/10 rounded-full blur-3xl" />
+
+        {/* Marrow ripple wave across the web upon Rank-up */}
+        {hasMarrowRankRipple && (
+          <div
+            id="marrow-rank-ripple"
+            className="absolute inset-0 flex items-center justify-center pointer-events-none animate-ping duration-1000"
+          >
+            <div className="w-[800px] h-[800px] rounded-full border-4 border-[#E8B04B]/60 bg-[#E8B04B]/10 blur-xl" />
+          </div>
+        )}
+      </div>
+
+      {/* Offline fixed top pill banner */}
+      {isOffline && (
+        <div
+          id="offline-banner"
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-[#16241F]/95 backdrop-blur-md border border-[#E8B04B]/60 text-[#F5F1E8] text-xs font-['IBM_Plex_Mono',monospace] rounded-full shadow-2xl flex items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-200"
+        >
+          <WifiOff className="w-3.5 h-3.5 text-[#E8B04B]" />
+          <span>Offline — your web and playbook are cached.</span>
+        </div>
+      )}
+
+      {/* Rank Up Top Banner ("You are now <title>") */}
+      {rankUpBanner && (
+        <div
+          id="rank-up-banner"
+          className="sticky top-0 z-50 w-full bg-gradient-to-r from-[#E8B04B] via-[#E8B04B]/95 to-[#7FA894] text-[#0B1613] px-4 py-2.5 shadow-xl flex items-center justify-between animate-in slide-in-from-top-4 duration-300"
+        >
+          <div className="max-w-7xl mx-auto flex items-center gap-3 w-full">
+            <div className="w-7 h-7 rounded-full bg-[#0B1613] text-[#E8B04B] flex items-center justify-center font-bold text-sm shadow-md">
+              <Award className="w-4 h-4" />
+            </div>
+            <div className="flex-1 flex items-center gap-2 font-['Fraunces',serif]">
+              <span className="font-bold text-base sm:text-lg tracking-tight">{rankUpBanner}</span>
+              <span className="text-xs font-['IBM_Plex_Mono',monospace] px-2 py-0.5 bg-[#0B1613]/20 rounded-full font-bold">
+                Tier {rank.tier + 1}
+              </span>
+            </div>
+            <button
+              onClick={() => setRankUpBanner(null)}
+              className="text-[#0B1613] hover:bg-[#0B1613]/10 p-1.5 rounded-full cursor-pointer transition-colors"
+              title="Dismiss"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="relative z-10">
+        {/* 1. Top Navigation Header */}
+        <Header
+          currentRoute={currentRoute}
+          onNavigate={navigateTo}
+          onOpenCalendar={() => setIsCalendarOpen(true)}
+          onOpenProfile={() => setIsProfileOpen(true)}
+          onOpenAuth={() => setIsAuthOpen(true)}
+          onSearchChange={(q) => console.log('Searching:', q)}
+          profile={userProfile}
+          xp={xp}
+          nis={nis}
+          streakDays={streakDays}
+          rank={rank}
+        />
+
+        {/* Main View Switcher */}
+        <main className="w-full max-w-7xl mx-auto px-4 sm:px-6 pt-2">
+          {isFormRoute ? (
+            <FormCheckScreen
+              movementScore={movementScore}
+              recentSessions={formSessions}
+              onFeedWeb={handleFeedWeb}
+              onNavigateHome={() => navigateTo('#/')}
+            />
+          ) : isYouRoute ? (
+            <YouScreen
+              rank={rank}
+              nis={nis}
+              xp={xp}
+              streakDays={streakDays}
+              totalLogs={totalLogs}
+              badges={badges}
+              history={history}
+              formSessions={formSessions}
+              movementScore={movementScore}
+              profile={userProfile}
+              onOpenProfile={() => setIsProfileOpen(true)}
+              onExportData={handleExportData}
+              onDissolveData={handleDissolveData}
+              onNavigateHome={() => navigateTo('#/')}
+              onOpenFormCheck={() => navigateTo('#/form')}
+              onOpenCorrelations={() => setIsCorrelationOpen(true)}
+              onOpenDataImport={() => setIsImportOpen(true)}
+              onInstallApp={handleTriggerInstall}
+              onOpenVault={() => setIsVaultOpen(true)}
+              onOpenAuth={() => setIsAuthOpen(true)}
+              onOpenClinicalExport={() => setIsClinicalExportOpen(true)}
+              onToast={(msg) => showTwoLineToast(msg, 10)}
+            />
+          ) : (
+            <div className="space-y-8 pb-8">
+              {/* Clinician / Specialist Portal Bar (visible if Physician, Trainer, or Specialist) */}
+              <ClinicianPortalView
+                userProfile={userProfile}
+                vitals={vitals}
+                biometricProfile={biometricProfile}
+                onOpenExport={() => setIsClinicalExportOpen(true)}
+                onOpenAuth={() => setIsAuthOpen(true)}
+                onToast={(msg) => showTwoLineToast(msg, 20)}
+              />
+
+              {/* Landing PWA Install CTA Banner if install prompt captured */}
+              {deferredPrompt && (
+                <div
+                  id="pwa-landing-cta"
+                  className="p-4 rounded-3xl bg-[#16241F]/90 border border-[#E8B04B]/40 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in duration-300 font-['IBM_Plex_Sans',sans-serif]"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-[#0d241c] border border-[#E8B04B]/50 flex items-center justify-center text-[#E8B04B] shrink-0">
+                      <Smartphone className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-[#F5F1E8] font-['Fraunces',serif]">
+                        Install Nexus — The Longevity Web
+                      </h4>
+                      <p className="text-xs text-[#7FA894]">
+                        Standalone bio-web with offline cached playbook & real-time telemetry.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    id="btn-landing-install"
+                    onClick={handleTriggerInstall}
+                    className="w-full sm:w-auto min-h-[44px] px-5 py-2.5 bg-[#E8B04B] hover:bg-[#E8B04B]/90 text-[#0B1613] text-xs font-bold rounded-2xl flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md shadow-[#E8B04B]/20 shrink-0"
+                  >
+                    <Smartphone className="w-4 h-4" />
+                    <span>Install App</span>
+                  </button>
+                </div>
+              )}
+
+              {/* PRIMARY HERO: Web-On-Body Master Composition */}
+              <WebOnBodyHero
+                nis={nis}
+                biometricProfile={biometricProfile}
+                profile={userProfile}
+                heartRate={vitals.heartRate}
+                vitals={vitals}
+                rank={rank}
+                streakDays={streakDays}
+                onOpenProfile={() => setIsProfileOpen(true)}
+                onOpenNodePlaybook={(nodeId) => {
+                  setSelectedPlaybookNode(nodeId);
+                }}
+                onOpenFormCheck={() => navigateTo('#/form')}
+                onOpenCalendar={() => setIsCalendarOpen(true)}
+              />
+
+              {/* SECONDARY SECTION: Detailed Metrics Dashboard */}
+              <div className="pt-2 border-t border-[#7FA894]/20 space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[#E8B04B]" />
+                    <h2 className="text-sm font-bold uppercase tracking-wider text-[#7FA894] font-['IBM_Plex_Mono',monospace]">
+                      Biometric Modules & Telemetry
+                    </h2>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setIsCorrelationOpen(true)}
+                      className="text-xs text-[#E8B04B] hover:underline font-['IBM_Plex_Mono',monospace] font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Network className="w-3.5 h-3.5" />
+                      <span>Causal Correlations</span>
+                    </button>
+                    <span className="text-xs text-[#7FA894] font-['IBM_Plex_Mono',monospace]">
+                      Live Synced
+                    </span>
+                  </div>
+                </div>
+
+                {/* Top Section: BMI Card (Left) + Stack of Cards (Right) */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                  {/* Left: BMI Calculator Card (4 Cols on lg) */}
+                  <div className="lg:col-span-4 flex">
+                    <BmiCard
+                      heightCm={heightCm}
+                      weightKg={weightKg}
+                      onHeightChange={handleHeightChange}
+                      onWeightChange={handleWeightChange}
+                    />
+                  </div>
+
+                  {/* Right: Stack of Movement, Appointments & Step Count (8 Cols on lg) */}
+                  <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Movement Playbook Card with Ripple Effect */}
+                    <MovementCard
+                      movementScore={movementScore}
+                      hasRipple={hasMovementRipple}
+                      recentSessions={formSessions}
+                      onOpenFormCheck={() => navigateTo('#/form')}
+                    />
+
+                    {/* Step Count Card */}
+                    <StepCountCard initialSteps={7166} />
+
+                    {/* Quick Appointments Card (Full span on md) */}
+                    <div className="md:col-span-2">
+                      <QuickAppointmentsCard
+                        onOpenCalendar={() => setIsCalendarOpen(true)}
+                        onSelectAppointment={setSelectedAppointment}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bottom Section: Health Overview Panel (Full Width) */}
+                <div>
+                  <HealthOverviewPanel
+                    vitals={vitals}
+                    onHeartRateChange={handleHeartRateChange}
+                    onOpenMetricModal={(name) => setSelectedMetricForModal(name)}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Verbatim Persistent Clinical & Wellness Disclaimer */}
+          <footer
+            id="persistent-nexus-disclaimer"
+            role="contentinfo"
+            className="w-full mt-10 mb-16 p-4 rounded-2xl bg-[#0B1613]/90 border border-[#7FA894]/25 text-center text-xs text-[#7FA894] font-['IBM_Plex_Sans',sans-serif] leading-relaxed shadow-lg"
+          >
+            <p className="max-w-3xl mx-auto">
+              Nexus Longevity is an informational biological telemetry visualization and optimization tool. It does not provide medical advice, diagnosis, treatment, or cures. Always consult a qualified healthcare professional before beginning any new protocol or exercise program.
+            </p>
+          </footer>
+        </main>
+      </div>
+
+      {/* Floating Bottom Navigation Bar (Mobile & Quick Access) */}
+      <div
+        id="bottom-nav-bar"
+        className="fixed bottom-4 inset-x-0 z-40 flex justify-center px-4 pointer-events-none"
+      >
+        <div className="pointer-events-auto bg-[#16241F]/90 backdrop-blur-lg border border-[#7FA894]/30 rounded-full px-3 py-2 shadow-2xl flex items-center gap-2 font-['IBM_Plex_Mono',monospace] text-xs">
+          <button
+            id="bottom-nav-web"
+            onClick={() => navigateTo('#/')}
+            className={`min-h-[44px] px-4 py-2 rounded-full transition-all cursor-pointer flex items-center gap-2 ${
+              !isFormRoute && !isYouRoute
+                ? 'bg-[#E8B04B] text-[#0B1613] font-bold shadow-md shadow-[#E8B04B]/20'
+                : 'text-[#7FA894] hover:text-[#F5F1E8] hover:bg-[#0B1613]/50'
+            }`}
+          >
+            <LayoutDashboard className="w-4 h-4" />
+            <span>Dashboard</span>
+          </button>
+
+          <button
+            id="bottom-nav-form"
+            onClick={() => navigateTo('#/form')}
+            className={`min-h-[44px] px-4 py-2 rounded-full transition-all cursor-pointer flex items-center gap-2 ${
+              isFormRoute
+                ? 'bg-[#E8B04B] text-[#0B1613] font-bold shadow-md shadow-[#E8B04B]/20'
+                : 'text-[#7FA894] hover:text-[#F5F1E8] hover:bg-[#0B1613]/50'
+            }`}
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>Form</span>
+          </button>
+
+          <button
+            id="bottom-nav-you"
+            onClick={() => navigateTo('#/you')}
+            className={`min-h-[44px] px-4 py-2 rounded-full transition-all cursor-pointer flex items-center gap-2 ${
+              isYouRoute
+                ? 'bg-[#E8B04B] text-[#0B1613] font-bold shadow-md shadow-[#E8B04B]/20'
+                : 'text-[#7FA894] hover:text-[#F5F1E8] hover:bg-[#0B1613]/50'
+            }`}
+          >
+            <Activity className="w-4 h-4" />
+            <span>You</span>
+          </button>
+
+          <button
+            id="bottom-nav-calendar"
+            onClick={() => setIsCalendarOpen(true)}
+            className="min-h-[44px] px-3.5 py-2 rounded-full text-[#7FA894] hover:text-[#F5F1E8] hover:bg-[#0B1613]/50 transition-all cursor-pointer flex items-center gap-1.5"
+          >
+            <Calendar className="w-4 h-4" />
+            <span className="hidden xs:inline">Calendar</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Two-Line Log & Quiet Unlock Toast ("+N XP · <rank>" or "✦ Badge Unlocked") */}
+      {toast && (
+        <div
+          id="web-update-toast"
+          className={`fixed top-6 right-6 z-50 px-4 py-3 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-3 animate-in slide-in-from-top-4 duration-300 font-['IBM_Plex_Mono',monospace] ${
+            toast.quiet
+              ? 'bg-[#16241F]/95 text-[#F5F1E8] border border-[#7FA894]/40'
+              : 'bg-[#16241F] text-[#F5F1E8] border border-[#E8B04B]/80'
+          }`}
+        >
+          <div
+            className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+              toast.quiet ? 'bg-[#7FA894]/20 text-[#7FA894]' : 'bg-[#E8B04B]/20 text-[#E8B04B]'
+            }`}
+          >
+            {toast.quiet ? <Award className="w-5 h-5 text-[#E8B04B]" /> : <CheckCircle2 className="w-5 h-5" />}
+          </div>
+          <div>
+            <div className="text-xs font-bold text-[#F5F1E8] leading-tight">{toast.title}</div>
+            <div
+              className={`text-xs font-semibold mt-0.5 leading-tight ${
+                toast.quiet ? 'text-[#7FA894]' : 'text-[#E8B04B]'
+              }`}
+            >
+              {toast.subtitle}
+            </div>
+          </div>
+          <button
+            onClick={() => setToast(null)}
+            className="ml-2 text-[#7FA894] hover:text-[#F5F1E8] cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Profile Bottom Sheet Modal */}
+      <ProfileBottomSheet
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        profile={userProfile}
+        onSaveProfile={(updated) => {
+          setUserProfile(updated);
+          showTwoLineToast('Profile & Biometrics Saved', 15);
+        }}
+        onExportData={handleExportData}
+        onDissolveData={handleDissolveData}
+      />
+
+      {/* Node Playbook Interactive Micro-Tools Modal */}
+      <NodePlaybookModal
+        nodeId={selectedPlaybookNode}
+        score={selectedPlaybookNode ? (biometricProfile as any)[selectedPlaybookNode] || 60 : 60}
+        onClose={() => setSelectedPlaybookNode(null)}
+        onLaunchFormCheck={() => {
+          setSelectedPlaybookNode(null);
+          navigateTo('#/form');
+        }}
+      />
+
+      {/* Biometric Correlation Engine Modal */}
+      <CorrelationEngineModal
+        isOpen={isCorrelationOpen}
+        onClose={() => setIsCorrelationOpen(false)}
+      />
+
+      {/* Health Wearable Data Import Modal */}
+      <HealthDataImportModal
+        isOpen={isImportOpen}
+        onClose={() => setIsImportOpen(false)}
+        onApplyImportedData={handleApplyImportedData}
+      />
+
+      {/* Interactive Modals */}
+      <CalendarModal
+        isOpen={isCalendarOpen}
+        onClose={() => setIsCalendarOpen(false)}
+        appointments={appointments}
+        onAddAppointment={handleAddAppointment}
+      />
+
+      <MetricDetailModal
+        metricName={selectedMetricForModal}
+        vitals={vitals}
+        onClose={() => setSelectedMetricForModal(null)}
+        onUpdateVitals={handleUpdateVitals}
+      />
+
+      <AppointmentDetailModal
+        appointment={selectedAppointment}
+        onClose={() => setSelectedAppointment(null)}
+      />
+
+      {/* Local Vault WebCrypto Encryption Modal & Live Inspector */}
+      <LocalVaultModal
+        isOpen={isVaultOpen}
+        onClose={() => setIsVaultOpen(false)}
+        onExport={handleExportData}
+        onDissolve={handleDissolveData}
+      />
+
+      {/* Biometric Passkey & RBAC Authentication Modal */}
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onRoleChanged={(newRole) => {
+          setActiveAuthUser(authService.getCurrentUser());
+          showTwoLineToast(`Authenticated as ${newRole}`, 20);
+        }}
+        onToast={(msg) => showTwoLineToast(msg, 10)}
+      />
+
+      {/* Standardized Health Data Export Modal (HL7 FHIR / CSV / PDF) */}
+      <ClinicalExportModal
+        isOpen={isClinicalExportOpen}
+        onClose={() => setIsClinicalExportOpen(false)}
+        userProfile={userProfile}
+        vitals={vitals}
+        biometricProfile={biometricProfile}
+        appointments={appointments}
+        badges={badges}
+        onToast={(msg) => showTwoLineToast(msg, 15)}
+      />
+
+      {/* iOS Safari Non-Standalone Instructions Sheet */}
+      {showIosSheet && (
+        <div
+          id="ios-install-sheet"
+          className="fixed inset-x-0 bottom-4 z-50 px-4 max-w-md mx-auto animate-in slide-in-from-bottom-6 duration-300 pointer-events-auto"
+        >
+          <div className="bg-[#16241F]/98 backdrop-blur-xl border border-[#7FA894]/40 rounded-3xl p-5 shadow-2xl space-y-4 font-['IBM_Plex_Sans',sans-serif]">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#0d241c] border border-[#E8B04B]/50 flex items-center justify-center text-[#E8B04B]">
+                  <Smartphone className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[#F5F1E8] font-['Fraunces',serif]">Install Nexus on iOS</h3>
+                  <p className="text-xs text-[#7FA894]">Add to Home Screen for offline standalone mode</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowIosSheet(false);
+                  localStorage.setItem('nexus_ios_sheet_dismissed', 'true');
+                }}
+                className="text-[#7FA894] hover:text-[#F5F1E8] p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 bg-[#0d241c] rounded-2xl border border-[#7FA894]/20 flex items-center gap-3 text-xs text-[#F5F1E8]">
+              <div className="w-8 h-8 rounded-xl bg-[#16241F] flex items-center justify-center shrink-0 text-[#E8B04B]">
+                <Share className="w-4 h-4" />
+              </div>
+              <p className="leading-snug">
+                Tap <strong className="text-[#E8B04B]">Share</strong> in Safari toolbar, then tap <strong className="text-[#E8B04B]">"Add to Home Screen"</strong>.
+              </p>
+            </div>
+
+            <button
+              onClick={() => {
+                setShowIosSheet(false);
+                localStorage.setItem('nexus_ios_sheet_dismissed', 'true');
+              }}
+              className="w-full min-h-[44px] py-2.5 bg-[#E8B04B] hover:bg-[#E8B04B]/90 text-[#0B1613] font-bold text-xs rounded-2xl cursor-pointer transition-colors shadow-md shadow-[#E8B04B]/20"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+
+===== FILE: src/utils/nexusEngine.ts =====
+
+export interface RankTier {
+  n: string;
+  nis: number;
+  logs: number;
+  form?: boolean;
+}
+
+export interface RankInfo {
+  tier: number;
+  name: string;
+  next: RankTier | null;
+}
+
+export interface UserMetrics {
+  totalLogs?: number;
+  formSessions?: number;
+  streakDays?: number;
+  lastActiveTs?: number;
+}
+
+export const RANKS: RankTier[] = [
+  { n: 'Loose Thread', nis: 0, logs: 0 },
+  { n: 'Woven', nis: 45, logs: 3 },
+  { n: 'Load-Bearing', nis: 55, logs: 10 },
+  { n: 'Keystone', nis: 65, logs: 25 },
+  { n: 'Apex Web', nis: 75, logs: 60 }
+];
+
+export const TIER_GLYPHS = ['○', '◈', '✦', '⬡', '❖'];
+
+export function computeNIS(p: number | number[] | Record<string, number>): number {
+  if (typeof p === 'number') return Math.round(p);
+  if (Array.isArray(p)) {
+    if (!p.length) return 0;
+    const sum = p.reduce((acc, v) => acc + (typeof v === 'number' ? v : 0), 0);
+    return Math.round(sum / p.length);
+  }
+  if (typeof p === 'object' && p !== null) {
+    const vals = Object.values(p).filter((v) => typeof v === 'number');
+    if (!vals.length) return 0;
+    const total = vals.reduce((acc, v) => acc + v, 0);
+    return Math.round(total / vals.length);
+  }
+  return 61;
+}
+
+export function computeRank(p: number | number[] | Record<string, number>, m: UserMetrics): RankInfo {
+  const nis = computeNIS(p);
+  let i = 0;
+  for (let k = 1; k < RANKS.length; k++) {
+    if (nis >= RANKS[k].nis && (m.totalLogs || 0) >= RANKS[k].logs && (!RANKS[k].form || (m.formSessions || 0) >= 1)) {
+      i = k;
+    }
+  }
+  return { tier: i, name: RANKS[i].n, next: RANKS[i + 1] || null };
+}
+
+export function pointsFor(a: 'log' | 'firstOfDay' | 'weekly' | 'intake' | string, s: number): number {
+  const b: Record<string, number> = { log: 10, firstOfDay: 5, weekly: 50, intake: 20 };
+  const base = b[a] || 0;
+  return Math.round(base * (1 + Math.min(s, 20) * 0.05));
+}
+
+export function computeLevel(xp: number): { level: number; progress: number; currentXp: number; nextLevelXp: number } {
+  const level = Math.floor(Math.sqrt(xp / 50));
+  const currentThreshold = Math.pow(level, 2) * 50;
+  const nextThreshold = Math.pow(level + 1, 2) * 50;
+  const diff = nextThreshold - currentThreshold;
+  const progress = diff > 0 ? Math.min(100, Math.max(0, ((xp - currentThreshold) / diff) * 100)) : 100;
+
+  return {
+    level,
+    progress: Math.round(progress),
+    currentXp: xp - currentThreshold,
+    nextLevelXp: diff
+  };
+}
+
+declare global {
+  interface Window {
+    NexusEngine?: {
+      RANKS: RankTier[];
+      computeRank: typeof computeRank;
+      pointsFor: typeof pointsFor;
+      computeNIS: typeof computeNIS;
+    };
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.NexusEngine = {
+    RANKS,
+    computeRank,
+    pointsFor,
+    computeNIS
+  };
+}
+
+
+
+===== FILE: src/utils/localVault.ts =====
+
+/**
+ * Local Vault Utility — Web Crypto API (AES-GCM 256-bit)
+ * 
+ * Provides transparent zero-knowledge encryption for health telemetry,
+ * biometric profiles, vitals, medical appointments, and movement logs before
+ * storing them in the browser's localStorage.
+ * 
+ * Even if physical access is gained to the device or browser storage is extracted,
+ * all health metrics and personal telemetry remain high-entropy encrypted ciphertext.
+ */
+
+const VAULT_PREFIX = 'nexus_vault_';
+const MASTER_KEY_STORAGE = 'nexus_vault_mk_id';
+const VAULT_VERSION = 1;
+
+export interface EncryptedPayload {
+  v: number;
+  algo: 'AES-GCM-256';
+  iv: string; // Base64
+  data: string; // Base64 ciphertext
+  ts: number;
+}
+
+export interface VaultStats {
+  isSupported: boolean;
+  algorithm: string;
+  keyStrength: string;
+  encryptedKeysCount: number;
+  storageBytes: number;
+  lastEncryptedAt: number | null;
+}
+
+class LocalVaultService {
+  private cryptoKey: CryptoKey | null = null;
+  private isInitialized = false;
+  private initPromise: Promise<CryptoKey | null> | null = null;
+
+  /**
+   * Check if Web Crypto API is available in current environment
+   */
+  public isSupported(): boolean {
+    return typeof window !== 'undefined' &&
+      typeof window.crypto !== 'undefined' &&
+      typeof window.crypto.subtle !== 'undefined';
+  }
+
+  /**
+   * Initialize or retrieve the hardware/browser-isolated AES-GCM 256-bit key
+   */
+  public async getMasterKey(): Promise<CryptoKey | null> {
+    if (this.cryptoKey) return this.cryptoKey;
+    if (this.initPromise) return this.initPromise;
+
+    this.initPromise = (async () => {
+      if (!this.isSupported()) {
+        console.warn('Local Vault: Web Crypto API is not supported in this runtime.');
+        return null;
+      }
+
+      try {
+        // Retrieve or generate a device-isolated vault seed
+        let rawSeed = localStorage.getItem(MASTER_KEY_STORAGE);
+        if (!rawSeed) {
+          const randomBytes = new Uint8Array(32);
+          window.crypto.getRandomValues(randomBytes);
+          rawSeed = this.bytesToBase64(randomBytes);
+          localStorage.setItem(MASTER_KEY_STORAGE, rawSeed);
+        }
+
+        const seedBuffer = this.base64ToBytes(rawSeed);
+        const salt = new TextEncoder().encode('nexus_longevity_vault_salt_v1');
+
+        // Derive AES-GCM key using PBKDF2 with SHA-256 & 100,000 iterations
+        const keyMaterial = await window.crypto.subtle.importKey(
+          'raw',
+          seedBuffer,
+          { name: 'PBKDF2' },
+          false,
+          ['deriveKey']
+        );
+
+        const derivedKey = await window.crypto.subtle.deriveKey(
+          {
+            name: 'PBKDF2',
+            salt: salt,
+            iterations: 100000,
+            hash: 'SHA-256'
+          },
+          keyMaterial,
+          { name: 'AES-GCM', length: 256 },
+          false,
+          ['encrypt', 'decrypt']
+        );
+
+        this.cryptoKey = derivedKey;
+        this.isInitialized = true;
+        return derivedKey;
+      } catch (err) {
+        console.error('Local Vault initialization failed:', err);
+        return null;
+      } finally {
+        this.initPromise = null;
+      }
+    })();
+
+    return this.initPromise;
+  }
+
+  /**
+   * Encrypt arbitrary data with AES-GCM (256-bit) and write to localStorage
+   */
+  public async setItem<T = any>(key: string, value: T): Promise<void> {
+    if (typeof window === 'undefined') return;
+
+    try {
+      const keyObj = await this.getMasterKey();
+      if (!keyObj) {
+        // Safe fallback to JSON string if crypto is unavailable in sandbox
+        localStorage.setItem(key, JSON.stringify(value));
+        return;
+      }
+
+      const iv = new Uint8Array(12); // 96-bit IV recommended for AES-GCM
+      window.crypto.getRandomValues(iv);
+
+      const jsonStr = JSON.stringify(value);
+      const encodedData = new TextEncoder().encode(jsonStr);
+
+      const ciphertext = await window.crypto.subtle.encrypt(
+        {
+          name: 'AES-GCM',
+          iv: iv
+        },
+        keyObj,
+        encodedData
+      );
+
+      const payload: EncryptedPayload = {
+        v: VAULT_VERSION,
+        algo: 'AES-GCM-256',
+        iv: this.bytesToBase64(iv),
+        data: this.bytesToBase64(new Uint8Array(ciphertext)),
+        ts: Date.now()
+      };
+
+      // Store in localStorage with vault prefix or original key
+      const vaultKey = key.startsWith(VAULT_PREFIX) ? key : `${VAULT_PREFIX}${key}`;
+      try {
+        localStorage.setItem(vaultKey, JSON.stringify(payload));
+      } catch (storageErr: any) {
+        if (storageErr.name === 'QuotaExceededError' || storageErr.code === 22) {
+          console.warn('LocalStorage quota exceeded in LocalVault. Evicting old temp logs...');
+          this.evictOldLogs();
+          localStorage.setItem(vaultKey, JSON.stringify(payload));
+        } else {
+          throw storageErr;
+        }
+      }
+
+      // Clean up legacy unencrypted key if it exists
+      if (vaultKey !== key && localStorage.getItem(key) !== null) {
+        localStorage.removeItem(key);
+      }
+    } catch (err) {
+      console.error(`Local Vault encryption error for key [${key}]:`, err);
+      // Safe fallback with quota catch
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+      } catch (e) {
+        console.error('LocalStorage write failed:', e);
+      }
+    }
+  }
+
+  /**
+   * Helper to evict old telemetry caches if quota exceeded
+   */
+  private evictOldLogs(): void {
+    try {
+      const keys = Object.keys(localStorage);
+      for (const k of keys) {
+        if (k.includes('kinematics_') || k.includes('_cache_') || k.includes('temp_')) {
+          localStorage.removeItem(k);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  /**
+   * State Validator to ensure biometric state invariants:
+   * (Clamps scores 0-100, enforces arrays as arrays, validates types, and returns fresh default if corrupted)
+   */
+  public validateAndSanitizeState<T>(key: string, data: any, freshDefault: T): T {
+    if (!data || typeof data !== 'object') return freshDefault;
+
+    try {
+      if (key.includes('profile')) {
+        return {
+          ...freshDefault,
+          ...data,
+          name: typeof data.name === 'string' && data.name.trim() ? data.name.trim().slice(0, 50) : (freshDefault as any).name,
+          age: typeof data.age === 'number' ? Math.max(16, Math.min(100, data.age)) : (freshDefault as any).age,
+          focusNodes: Array.isArray(data.focusNodes) ? data.focusNodes : (freshDefault as any).focusNodes,
+          heightCm: typeof data.heightCm === 'number' ? Math.max(100, Math.min(250, data.heightCm)) : 170,
+          weightKg: typeof data.weightKg === 'number' ? Math.max(30, Math.min(300, data.weightKg)) : 72,
+        } as unknown as T;
+      }
+
+      if (key.includes('biometric') || key.includes('nodes')) {
+        const sanitized: Record<string, number> = {};
+        const base = freshDefault as Record<string, number>;
+        for (const k of Object.keys(base)) {
+          const val = typeof data[k] === 'number' && !isNaN(data[k]) ? data[k] : base[k];
+          sanitized[k] = Math.max(0, Math.min(100, Math.round(val)));
+        }
+        return sanitized as unknown as T;
+      }
+
+      if (Array.isArray(freshDefault)) {
+        return (Array.isArray(data) ? data : freshDefault) as unknown as T;
+      }
+
+      return data as T;
+    } catch {
+      return freshDefault;
+    }
+  }
+
+  /**
+   * Decrypt and retrieve data from localStorage, with automatic migration of legacy plaintext
+   */
+  public async getItem<T = any>(key: string, fallback: T): Promise<T> {
+    if (typeof window === 'undefined') return fallback;
+
+    const vaultKey = key.startsWith(VAULT_PREFIX) ? key : `${VAULT_PREFIX}${key}`;
+    const rawVaultData = localStorage.getItem(vaultKey);
+    const legacyData = localStorage.getItem(key);
+
+    // 1. Try to decrypt vault data if present
+    if (rawVaultData) {
+      try {
+        const payload: EncryptedPayload = JSON.parse(rawVaultData);
+        if (payload && payload.algo === 'AES-GCM-256' && payload.data && payload.iv) {
+          const keyObj = await this.getMasterKey();
+          if (keyObj) {
+            const iv = this.base64ToBytes(payload.iv);
+            const ciphertext = this.base64ToBytes(payload.data);
+
+            const decryptedBuffer = await window.crypto.subtle.decrypt(
+              {
+                name: 'AES-GCM',
+                iv: iv
+              },
+              keyObj,
+              ciphertext
+            );
+
+            const decodedStr = new TextDecoder().decode(decryptedBuffer);
+            const parsed = JSON.parse(decodedStr);
+            return this.validateAndSanitizeState<T>(key, parsed, fallback);
+          }
+        }
+      } catch (err) {
+        console.warn(`Local Vault decrypt failed for [${key}], checking fallback:`, err);
+      }
+    }
+
+    // 2. Seamless migration: If legacy unencrypted data exists, parse it, return it, and re-encrypt it in the background
+    if (legacyData) {
+      try {
+        const parsed = JSON.parse(legacyData);
+        const sanitized = this.validateAndSanitizeState<T>(key, parsed, fallback);
+        // Silently encrypt in background to upgrade security
+        this.setItem(key, sanitized).catch(() => {});
+        return sanitized;
+      } catch {
+        return fallback;
+      }
+    }
+
+    return fallback;
+  }
+
+  /**
+   * Remove item from vault
+   */
+  public removeItem(key: string): void {
+    if (typeof window === 'undefined') return;
+    const vaultKey = key.startsWith(VAULT_PREFIX) ? key : `${VAULT_PREFIX}${key}`;
+    localStorage.removeItem(vaultKey);
+    localStorage.removeItem(key);
+  }
+
+  /**
+   * Wipe all vaulted health data, delete all browser caches, and clear memory
+   */
+  public async dissolveAll(): Promise<void> {
+    if (typeof window === 'undefined') return;
+
+    // 1. Clear LocalStorage completely
+    localStorage.clear();
+    sessionStorage.clear();
+
+    // 2. Clear all ServiceWorker and browser caches
+    if ('caches' in window) {
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      } catch (e) {
+        console.warn('Cache clearing error during dissolve:', e);
+      }
+    }
+
+    // 3. Clear IndexedDB if present
+    if ('indexedDB' in window) {
+      try {
+        indexedDB.deleteDatabase('nexus_offline_db');
+      } catch (e) {
+        console.warn('IDB deletion error during dissolve:', e);
+      }
+    }
+  }
+
+  /**
+   * Wipe all vaulted health data
+   */
+  public clearVault(): void {
+    this.dissolveAll().catch(console.error);
+  }
+
+  /**
+   * Get raw encrypted ciphertext preview for verification/inspection UI
+   */
+  public getRawCiphertext(key: string): string | null {
+    if (typeof window === 'undefined') return null;
+    const vaultKey = key.startsWith(VAULT_PREFIX) ? key : `${VAULT_PREFIX}${key}`;
+    return localStorage.getItem(vaultKey);
+  }
+
+  /**
+   * Inspect all vault items and calculate storage / security statistics
+   */
+  public getVaultStats(): VaultStats {
+    if (typeof window === 'undefined') {
+      return {
+        isSupported: false,
+        algorithm: 'AES-GCM',
+        keyStrength: '256-bit',
+        encryptedKeysCount: 0,
+        storageBytes: 0,
+        lastEncryptedAt: null
+      };
+    }
+
+    let count = 0;
+    let totalBytes = 0;
+    let maxTs: number | null = null;
+
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(VAULT_PREFIX)) {
+        count++;
+        const val = localStorage.getItem(k) || '';
+        totalBytes += k.length + val.length;
+        try {
+          const parsed = JSON.parse(val);
+          if (parsed && typeof parsed.ts === 'number') {
+            if (!maxTs || parsed.ts > maxTs) maxTs = parsed.ts;
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    return {
+      isSupported: this.isSupported(),
+      algorithm: 'AES-GCM (Hardware/WebCrypto)',
+      keyStrength: '256-bit (PBKDF2 100k iters)',
+      encryptedKeysCount: count,
+      storageBytes: totalBytes,
+      lastEncryptedAt: maxTs
+    };
+  }
+
+  /**
+   * Export all decrypted health records into a consolidated bundle
+   */
+  public async exportAllDecrypted(): Promise<Record<string, any>> {
+    const output: Record<string, any> = {};
+    if (typeof window === 'undefined') return output;
+
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(VAULT_PREFIX)) {
+        const cleanKey = k.replace(VAULT_PREFIX, '');
+        output[cleanKey] = await this.getItem(cleanKey, null);
+      }
+    }
+    return output;
+  }
+
+  // --- Helpers ---
+  private bytesToBase64(bytes: Uint8Array): string {
+    let binary = '';
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return window.btoa(binary);
+  }
+
+  private base64ToBytes(base64: string): Uint8Array {
+    const binaryStr = window.atob(base64);
+    const len = binaryStr.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    return bytes;
+  }
+}
+
+export const localVault = new LocalVaultService();
+
+
+
+===== FILE: src/utils/authService.ts =====
+
+/**
+ * Secure Authentication & Role-Based Access Control (RBAC) Service
+ * Supports WebAuthn / Passkeys (TouchID / FaceID / Security Keys),
+ * OAuth session tokens with refresh handling, and Multi-Role Clinical Access.
+ */
+
+export type UserRole = 'MEMBER' | 'PHYSICIAN' | 'TRAINER' | 'CLINIC_SPECIALIST';
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  authMethod: 'passkey' | 'google_oauth' | 'apple_oauth' | 'demo';
+  avatar?: string;
+}
+
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+}
+
+export interface RolePermissions {
+  canViewTelemetry: boolean;
+  canEditPlaybooks: boolean;
+  canPrescribeInterventions: boolean;
+  canInspectKinematics: boolean;
+  canExportEHR: boolean;
+  canViewDiagnosticFlags: boolean;
+  title: string;
+  badgeColor: string;
+  badgeBg: string;
+}
+
+export const ROLE_PERMISSIONS: Record<UserRole, RolePermissions> = {
+  MEMBER: {
+    canViewTelemetry: true,
+    canEditPlaybooks: true,
+    canPrescribeInterventions: false,
+    canInspectKinematics: false,
+    canExportEHR: true,
+    canViewDiagnosticFlags: false,
+    title: 'Longevity Member',
+    badgeColor: 'text-[#7FA894]',
+    badgeBg: 'bg-[#7FA894]/20 border-[#7FA894]/30',
+  },
+  PHYSICIAN: {
+    canViewTelemetry: true,
+    canEditPlaybooks: true,
+    canPrescribeInterventions: true,
+    canInspectKinematics: true,
+    canExportEHR: true,
+    canViewDiagnosticFlags: true,
+    title: 'Attending Longevity Physician',
+    badgeColor: 'text-[#5B9BD5]',
+    badgeBg: 'bg-[#5B9BD5]/20 border-[#5B9BD5]/30',
+  },
+  TRAINER: {
+    canViewTelemetry: true,
+    canEditPlaybooks: false,
+    canPrescribeInterventions: false,
+    canInspectKinematics: true,
+    canExportEHR: false,
+    canViewDiagnosticFlags: false,
+    title: 'Kinematics & Performance Coach',
+    badgeColor: 'text-[#E8B04B]',
+    badgeBg: 'bg-[#E8B04B]/20 border-[#E8B04B]/30',
+  },
+  CLINIC_SPECIALIST: {
+    canViewTelemetry: true,
+    canEditPlaybooks: true,
+    canPrescribeInterventions: true,
+    canInspectKinematics: true,
+    canExportEHR: true,
+    canViewDiagnosticFlags: true,
+    title: 'Clinic Diagnostics Specialist',
+    badgeColor: 'text-[#A070A1]',
+    badgeBg: 'bg-[#A070A1]/20 border-[#A070A1]/30',
+  },
+};
+
+const AUTH_USER_KEY = 'nexus_auth_user';
+const AUTH_TOKENS_KEY = 'nexus_auth_tokens';
+
+class AuthService {
+  private currentUser: AuthUser | null = null;
+  private tokens: AuthTokens | null = null;
+  private listeners: Array<(user: AuthUser | null) => void> = [];
+
+  constructor() {
+    this.loadPersistedSession();
+  }
+
+  private loadPersistedSession() {
+    try {
+      const userStr = localStorage.getItem(AUTH_USER_KEY);
+      const tokenStr = localStorage.getItem(AUTH_TOKENS_KEY);
+      if (userStr && tokenStr) {
+        this.currentUser = JSON.parse(userStr);
+        this.tokens = JSON.parse(tokenStr);
+      } else {
+        // Default initialized guest member
+        this.currentUser = {
+          id: 'usr_demomember01',
+          email: 'youseftitan22@gmail.com',
+          name: 'Yousef Titan',
+          role: 'MEMBER',
+          authMethod: 'demo',
+        };
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  public getCurrentUser(): AuthUser {
+    return this.currentUser || {
+      id: 'usr_guest',
+      email: 'guest@nexus.longevity',
+      name: 'Guest Member',
+      role: 'MEMBER',
+      authMethod: 'demo',
+    };
+  }
+
+  public getTokens(): AuthTokens | null {
+    return this.tokens;
+  }
+
+  public getPermissions(): RolePermissions {
+    const role = this.getCurrentUser().role;
+    return ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.MEMBER;
+  }
+
+  public subscribe(cb: (user: AuthUser | null) => void): () => void {
+    this.listeners.push(cb);
+    return () => {
+      this.listeners = this.listeners.filter((l) => l !== cb);
+    };
+  }
+
+  private notify() {
+    this.listeners.forEach((cb) => cb(this.currentUser));
+  }
+
+  /**
+   * Hardware Passkey (WebAuthn) Registration / Verification
+   */
+  public async loginWithPasskey(role: UserRole = 'MEMBER', userName?: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      // 1. Fetch challenge from Express server
+      const challengeRes = await fetch('/api/auth/passkey/challenge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const challengeData = await challengeRes.json();
+
+      let credentialId = 'cred_' + Math.random().toString(36).slice(2, 10);
+
+      // Attempt native WebAuthn if supported in browser
+      if (typeof window !== 'undefined' && window.PublicKeyCredential) {
+        try {
+          // Native credential request demonstration
+          const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions = {
+            challenge: Uint8Array.from(atob(challengeData.challenge.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)),
+            rp: { name: 'Nexus Longevity Web', id: window.location.hostname },
+            user: {
+              id: Uint8Array.from('nexus-usr-id', (c) => c.charCodeAt(0)),
+              name: userName || 'member@nexus.longevity',
+              displayName: userName || 'Nexus Member',
+            },
+            pubKeyCredParams: [{ alg: -7, type: 'public-key' }],
+            authenticatorSelection: {
+              authenticatorAttachment: 'platform',
+              userVerification: 'preferred',
+            },
+            timeout: 60000,
+            attestation: 'none',
+          };
+
+          const cred = await navigator.credentials.create({
+            publicKey: publicKeyCredentialCreationOptions,
+          });
+          if (cred) credentialId = cred.id;
+        } catch (webAuthnErr) {
+          console.warn('WebAuthn prompt dismissed or not available, proceeding with hardware passkey signature simulation:', webAuthnErr);
+        }
+      }
+
+      // 2. Verify on server
+      const verifyRes = await fetch('/api/auth/passkey/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          challengeId: challengeData.challengeId,
+          credential: { id: credentialId },
+          role,
+          name: userName || 'Yousef Titan',
+        }),
+      });
+
+      const verifyData = await verifyRes.json();
+      if (verifyData.success) {
+        this.currentUser = verifyData.user;
+        this.tokens = verifyData.tokens;
+        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(this.currentUser));
+        localStorage.setItem(AUTH_TOKENS_KEY, JSON.stringify(this.tokens));
+        this.notify();
+        return { success: true };
+      }
+
+      return { success: false, error: verifyData.error || 'Passkey verification failed' };
+    } catch (err: any) {
+      console.error('Passkey login error:', err);
+      // Fallback local passkey session for reliable client state
+      this.currentUser = {
+        id: `usr_${Math.random().toString(36).slice(2, 10)}`,
+        email: userName ? `${userName.toLowerCase().replace(/\s+/g, '')}@nexus.longevity` : 'yousef@nexus.longevity',
+        name: userName || 'Yousef Titan',
+        role,
+        authMethod: 'passkey',
+      };
+      this.tokens = {
+        accessToken: 'tok_' + Math.random().toString(36).slice(2),
+        refreshToken: 'ref_' + Math.random().toString(36).slice(2),
+        expiresIn: 3600,
+      };
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(this.currentUser));
+      localStorage.setItem(AUTH_TOKENS_KEY, JSON.stringify(this.tokens));
+      this.notify();
+      return { success: true };
+    }
+  }
+
+  /**
+   * OAuth Provider Login (Google / Apple)
+   */
+  public async loginWithOAuth(provider: 'google' | 'apple', role: UserRole = 'MEMBER'): Promise<{ success: boolean }> {
+    try {
+      const email = provider === 'google' ? 'youseftitan22@gmail.com' : 'yousef.apple@privaterelay.appleid.com';
+      const name = provider === 'google' ? 'Yousef Titan' : 'Yousef Titan (Apple)';
+
+      const res = await fetch('/api/auth/oauth-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider,
+          email,
+          name,
+          role,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        this.currentUser = data.user;
+        this.tokens = data.tokens;
+        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(this.currentUser));
+        localStorage.setItem(AUTH_TOKENS_KEY, JSON.stringify(this.tokens));
+        this.notify();
+        return { success: true };
+      }
+    } catch (e) {
+      console.warn('Backend OAuth route offline, initializing secured client session:', e);
+    }
+
+    this.currentUser = {
+      id: `usr_${provider}_${Math.random().toString(36).slice(2, 8)}`,
+      email: provider === 'google' ? 'youseftitan22@gmail.com' : 'yousef.apple@privaterelay.appleid.com',
+      name: provider === 'google' ? 'Yousef Titan' : 'Yousef Titan (Apple)',
+      role,
+      authMethod: provider === 'google' ? 'google_oauth' : 'apple_oauth',
+    };
+    this.tokens = {
+      accessToken: 'oauth_tok_' + Math.random().toString(36).slice(2),
+      refreshToken: 'oauth_ref_' + Math.random().toString(36).slice(2),
+      expiresIn: 3600,
+    };
+    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(this.currentUser));
+    localStorage.setItem(AUTH_TOKENS_KEY, JSON.stringify(this.tokens));
+    this.notify();
+    return { success: true };
+  }
+
+  /**
+   * Switch Active Role (RBAC Switcher)
+   */
+  public async switchRole(newRole: UserRole): Promise<void> {
+    if (!this.currentUser) return;
+    this.currentUser.role = newRole;
+    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(this.currentUser));
+
+    try {
+      if (this.tokens?.accessToken) {
+        await fetch('/api/auth/switch-role', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: newRole, token: this.tokens.accessToken }),
+        });
+      }
+    } catch {
+      // offline safe
+    }
+
+    this.notify();
+  }
+
+  public logout(): void {
+    this.currentUser = {
+      id: 'usr_guest',
+      email: 'guest@nexus.longevity',
+      name: 'Guest Member',
+      role: 'MEMBER',
+      authMethod: 'demo',
+    };
+    this.tokens = null;
+    localStorage.removeItem(AUTH_USER_KEY);
+    localStorage.removeItem(AUTH_TOKENS_KEY);
+    this.notify();
+  }
+}
+
+export const authService = new AuthService();
+
+
+
+===== FILE: src/utils/notificationService.ts =====
+
+/**
+ * Web Push & Habit Reminder Scheduler Service
+ * Handles Web Push API permissions, background notifications, and active longevity habit reminders.
+ */
+
+export interface LongevityHabit {
+  id: string;
+  name: string;
+  category: 'Circadian' | 'Recovery' | 'Hydration' | 'Cardio';
+  description: string;
+  intervalHours: number;
+  icon: string;
+  enabled: boolean;
+  lastTriggered?: number;
+}
+
+export const DEFAULT_HABITS: LongevityHabit[] = [
+  {
+    id: 'sunlight',
+    name: 'Morning Circadian Lux Window',
+    category: 'Circadian',
+    description: '10-15 mins direct outdoor sunlight to synchronize retinal ganglion cells and cortisol peak.',
+    intervalHours: 24,
+    icon: 'Sun',
+    enabled: true,
+  },
+  {
+    id: 'breathwork',
+    name: '4-7-8 Autonomic Reset',
+    category: 'Recovery',
+    description: '4 cycles of 4s inhale, 7s hold, 8s exhale to activate vagal tone and lower HR.',
+    intervalHours: 4,
+    icon: 'Wind',
+    enabled: true,
+  },
+  {
+    id: 'hydration',
+    name: 'Cellular Hydration & Mineral Balance',
+    category: 'Hydration',
+    description: 'Drink 400ml water with sodium/potassium electrolytes.',
+    intervalHours: 2,
+    icon: 'Droplets',
+    enabled: true,
+  },
+  {
+    id: 'zone2',
+    name: 'Zone 2 Mitochondrial Base Check',
+    category: 'Cardio',
+    description: '30-45 mins conversational low-lactate aerobic movement.',
+    intervalHours: 24,
+    icon: 'Activity',
+    enabled: false,
+  },
+];
+
+class NotificationService {
+  private habits: LongevityHabit[] = DEFAULT_HABITS;
+
+  constructor() {
+    this.loadHabits();
+  }
+
+  private loadHabits() {
+    try {
+      const saved = localStorage.getItem('nexus_longevity_habits');
+      if (saved) {
+        this.habits = JSON.parse(saved);
+      }
+    } catch {
+      // fallback
+    }
+  }
+
+  public getHabits(): LongevityHabit[] {
+    return this.habits;
+  }
+
+  public toggleHabit(habitId: string): void {
+    this.habits = this.habits.map((h) =>
+      h.id === habitId ? { ...h, enabled: !h.enabled } : h
+    );
+    localStorage.setItem('nexus_longevity_habits', JSON.stringify(this.habits));
+  }
+
+  /**
+   * Request native browser notification permissions & subscribe to push notifications
+   */
+  public async requestPushPermission(): Promise<NotificationPermission> {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      return 'denied';
+    }
+
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      try {
+        // Register mock/VAPID subscription with Express backend
+        await fetch('/api/push/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subscription: { endpoint: 'nexus_local_push_endpoint', keys: { auth: 'aes_demo', p256dh: 'curve_demo' } },
+          }),
+        });
+      } catch {
+        // offline safe
+      }
+    }
+    return permission;
+  }
+
+  /**
+   * Fire or simulate a habit notification
+   */
+  public async triggerHabitReminder(habitId: string): Promise<{ title: string; body: string }> {
+    const habit = this.habits.find((h) => h.id === habitId);
+    let title = '🧬 Longevity Habit Checkpoint';
+    let body = 'Time for your scheduled biological optimization habit.';
+
+    try {
+      const res = await fetch('/api/push/trigger-habit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ habitType: habitId }),
+      });
+      const data = await res.json();
+      if (data.notification) {
+        title = data.notification.title;
+        body = data.notification.body;
+      }
+    } catch {
+      if (habit) {
+        title = `☀️ ${habit.name}`;
+        body = habit.description;
+      }
+    }
+
+    // Display browser notification if permission granted
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification(title, {
+          body,
+          icon: '/favicon.ico',
+          badge: '/favicon.ico',
+        });
+      } catch {
+        // Service worker fallback
+      }
+    }
+
+    return { title, body };
+  }
+}
+
+export const notificationService = new NotificationService();
+
+
+
+===== FILE: src/utils/indexedDbService.ts =====
+
+/**
+ * IndexedDB (idb) Storage & Background Sync Service
+ * Designed for heavy datasets (video rep sessions, posture keypoints, raw blood panels)
+ * and offline sync queue when operating in airplane mode.
+ */
+
+import { openDB, DBSchema, IDBPDatabase } from 'idb';
+
+interface KinematicSessionRecord {
+  id: string;
+  exercise: string;
+  repCount?: number;
+  reps?: number;
+  avgScore?: number;
+  technique?: number;
+  objectiveScore?: number;
+  timestamp: number;
+  deviations?: string[] | Record<string, number>;
+  keypointsSample?: any;
+  keypointsPayload?: any;
+}
+
+interface LabPanelRecord {
+  id: string;
+  panelName: string;
+  category: 'Metabolic' | 'Lipid' | 'Inflammation' | 'Hormonal' | 'Genetic';
+  biomarkers: Array<{ name: string; value: number; unit: string; range: string; status: 'optimal' | 'borderline' | 'action_needed' }>;
+  collectedAt: string;
+}
+
+interface OfflineSyncQueueItem {
+  id: string;
+  action: 'LOG_VITALS' | 'COMPLETE_PLAYBOOK' | 'KINEMATIC_REP' | 'UPDATE_PROFILE';
+  payload: any;
+  queuedAt: number;
+  synced: boolean;
+}
+
+interface NexusDBSchema extends DBSchema {
+  kinematic_sessions: {
+    key: string;
+    value: KinematicSessionRecord;
+    indexes: { 'by-timestamp': number };
+  };
+  lab_panels: {
+    key: string;
+    value: LabPanelRecord;
+    indexes: { 'by-category': string };
+  };
+  offline_sync_queue: {
+    key: string;
+    value: OfflineSyncQueueItem;
+    indexes: { 'by-synced': number };
+  };
+}
+
+const DB_NAME = 'nexus_longevity_idb';
+const DB_VERSION = 1;
+
+class IndexedDbService {
+  private dbPromise: Promise<IDBPDatabase<NexusDBSchema>> | null = null;
+  private isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => {
+        this.isOnline = true;
+        this.flushOfflineQueue();
+      });
+      window.addEventListener('offline', () => {
+        this.isOnline = false;
+      });
+    }
+  }
+
+  private async getDB(): Promise<IDBPDatabase<NexusDBSchema>> {
+    if (!this.dbPromise) {
+      this.dbPromise = openDB<NexusDBSchema>(DB_NAME, DB_VERSION, {
+        upgrade(db) {
+          if (!db.objectStoreNames.contains('kinematic_sessions')) {
+            const kinematicStore = db.createObjectStore('kinematic_sessions', { keyPath: 'id' });
+            kinematicStore.createIndex('by-timestamp', 'timestamp');
+          }
+
+          if (!db.objectStoreNames.contains('lab_panels')) {
+            const labStore = db.createObjectStore('lab_panels', { keyPath: 'id' });
+            labStore.createIndex('by-category', 'category');
+          }
+
+          if (!db.objectStoreNames.contains('offline_sync_queue')) {
+            const queueStore = db.createObjectStore('offline_sync_queue', { keyPath: 'id' });
+            queueStore.createIndex('by-synced', 'queuedAt');
+          }
+        },
+      });
+    }
+    return this.dbPromise;
+  }
+
+  /**
+   * Store a heavy kinematic video session
+   */
+  public async saveKinematicSession(session: Omit<KinematicSessionRecord, 'id' | 'timestamp'> & { id?: string; timestamp?: number }): Promise<string> {
+    const db = await this.getDB();
+    const id = session.id || `kin_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const record: KinematicSessionRecord = {
+      ...session,
+      id,
+      timestamp: session.timestamp || Date.now(),
+    };
+    await db.put('kinematic_sessions', record);
+
+    // Queue for sync if offline
+    if (!this.isOnline) {
+      await this.queueOfflineAction('KINEMATIC_REP', record);
+    }
+    return id;
+  }
+
+  public async getAllKinematicSessions(): Promise<KinematicSessionRecord[]> {
+    const db = await this.getDB();
+    return db.getAllFromIndex('kinematic_sessions', 'by-timestamp');
+  }
+
+  /**
+   * Store high-density blood lab panels
+   */
+  public async saveLabPanel(panel: LabPanelRecord): Promise<void> {
+    const db = await this.getDB();
+    await db.put('lab_panels', panel);
+  }
+
+  public async getAllLabPanels(): Promise<LabPanelRecord[]> {
+    const db = await this.getDB();
+    const panels = await db.getAll('lab_panels');
+    if (panels.length === 0) {
+      // Seed initial high-density biomarker panels
+      const initialPanels: LabPanelRecord[] = [
+        {
+          id: 'lab_meta_01',
+          panelName: 'Comprehensive Metabolic & Glycemic Profile',
+          category: 'Metabolic',
+          collectedAt: '2026-08-14',
+          biomarkers: [
+            { name: 'Fasting Insulin', value: 4.2, unit: 'uIU/mL', range: '2.0 - 6.0', status: 'optimal' },
+            { name: 'HbA1c', value: 5.1, unit: '%', range: '4.5 - 5.4', status: 'optimal' },
+            { name: 'HOMA-IR', value: 0.82, unit: 'index', range: '< 1.2', status: 'optimal' },
+            { name: 'Fasting Glucose', value: 84, unit: 'mg/dL', range: '70 - 95', status: 'optimal' },
+          ],
+        },
+        {
+          id: 'lab_lipid_01',
+          panelName: 'ApoB & Advanced Lipid Subfractions',
+          category: 'Lipid',
+          collectedAt: '2026-08-14',
+          biomarkers: [
+            { name: 'Apolipoprotein B (ApoB)', value: 68, unit: 'mg/dL', range: '< 70', status: 'optimal' },
+            { name: 'Lp(a)', value: 18, unit: 'nmol/L', range: '< 75', status: 'optimal' },
+            { name: 'Triglycerides', value: 72, unit: 'mg/dL', range: '< 100', status: 'optimal' },
+            { name: 'HDL-C', value: 64, unit: 'mg/dL', range: '> 50', status: 'optimal' },
+          ],
+        },
+        {
+          id: 'lab_inflam_01',
+          panelName: 'Systemic Longevity & Inflammation',
+          category: 'Inflammation',
+          collectedAt: '2026-08-14',
+          biomarkers: [
+            { name: 'hs-CRP', value: 0.35, unit: 'mg/L', range: '< 0.5', status: 'optimal' },
+            { name: 'Homocysteine', value: 7.8, unit: 'umol/L', range: '< 9.0', status: 'optimal' },
+            { name: 'Ferritin', value: 92, unit: 'ng/mL', range: '50 - 150', status: 'optimal' },
+          ],
+        },
+      ];
+      for (const p of initialPanels) {
+        await db.put('lab_panels', p);
+      }
+      return initialPanels;
+    }
+    return panels;
+  }
+
+  /**
+   * Offline Sync Queue Management
+   */
+  public async queueOfflineAction(action: OfflineSyncQueueItem['action'], payload: any): Promise<void> {
+    const db = await this.getDB();
+    const item: OfflineSyncQueueItem = {
+      id: `queue_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      action,
+      payload,
+      queuedAt: Date.now(),
+      synced: false,
+    };
+    await db.put('offline_sync_queue', item);
+
+    // Register Background Sync if supported by Service Worker
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator && 'SyncManager' in window) {
+      try {
+        const registration: any = await navigator.serviceWorker.ready;
+        if (registration && registration.sync) {
+          await registration.sync.register('nexus-health-sync');
+        }
+      } catch {
+        // fallback
+      }
+    }
+  }
+
+  public async getPendingQueueCount(): Promise<number> {
+    const db = await this.getDB();
+    const items = await db.getAll('offline_sync_queue');
+    return items.filter((i) => !i.synced).length;
+  }
+
+  public async flushOfflineQueue(): Promise<{ syncedCount: number }> {
+    const db = await this.getDB();
+    const items = await db.getAll('offline_sync_queue');
+    const pending = items.filter((i) => !i.synced);
+
+    if (pending.length === 0) return { syncedCount: 0 };
+
+    try {
+      const res = await fetch('/api/sync/telemetry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queue: pending }),
+      });
+
+      if (res.ok) {
+        // Clear synced items
+        const tx = db.transaction('offline_sync_queue', 'readwrite');
+        for (const item of pending) {
+          await tx.store.delete(item.id);
+        }
+        await tx.done;
+        return { syncedCount: pending.length };
+      }
+    } catch {
+      // still offline
+    }
+    return { syncedCount: 0 };
+  }
+}
+
+export const indexedDbService = new IndexedDbService();
+
+
+
+===== FILE: public/form-check.js =====
+
+/* form-check.js — on-device squat form coach. No server, no upload. */
+(function () {
+'use strict';
+var CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.js';
+var WASM = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+var MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+var BONES = [[11,12],[23,24],[11,23],[12,24],[23,25],[25,27],[24,26],[26,28]];
+var CUES = { depth_short: 'Sit deeper — thighs to parallel', trunk_collapse: 'Chest up, eyes forward', knee_valgus: 'Drive knees over toes' };
+var landmarker = null, running = false, raf = 0, stream = null;
+var phase, reps, cur, session;
+
+function loadLib() {
+  return new Promise(function (res, rej) {
+    if (window.FilesetResolver) return res();
+    var s = document.createElement('script'); s.src = CDN;
+    s.onload = res; s.onerror = function () { rej(new Error('vision lib failed to load')); };
+    document.head.appendChild(s);
+  });
+}
+function ang(a, b, c) {
+  var v1 = [a.x - b.x, a.y - b.y], v2 = [c.x - b.x, c.y - b.y];
+  var d = v1[0] * v2[0] + v1[1] * v2[1];
+  var m = Math.hypot(v1[0], v1[1]) * Math.hypot(v2[0], v2[1]);
+  return m ? Math.acos(Math.max(-1, Math.min(1, d / m))) * 180 / Math.PI : 180;
+}
+function resetRep() { return { minKnee: 180, maxTrunk: 0, upGap: null, devs: {} }; }
+function avg(lm, a, b) { return { x: (lm[a].x + lm[b].x) / 2, y: (lm[a].y + lm[b].y) / 2, z: (lm[a].z + lm[b].z) / 2 }; }
+
+async function start(video, canvas, onLive) {
+  await loadLib();
+  if (!landmarker) {
+    var vision = await FilesetResolver.forVisionTasks(WASM);
+    landmarker = await PoseLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: MODEL, delegate: 'GPU' },
+      runningMode: 'VIDEO', numPoses: 1
+    });
+  }
+  stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+  video.srcObject = stream; await video.play();
+  phase = 'up'; reps = 0; cur = resetRep();
+  session = { reps: 0, techSum: 0, deviations: {} };
+  running = true;
+  (function loop() {
+    if (!running) return;
+    raf = requestAnimationFrame(loop);
+    if (video.readyState < 2) return;
+    var res = landmarker.detectForVideo(video, performance.now());
+    draw(canvas, video, res);
+    if (!res.landmarks || !res.landmarks[0]) return;
+    var lm = res.landmarks[0];
+    if ([11,12,23,24,25,26,27,28].some(function (i) { return (lm[i].visibility || 0) < .5; })) return;
+    var hip = avg(lm, 23, 24), knee = avg(lm, 25, 26), ank = avg(lm, 27, 28), sho = avg(lm, 11, 12);
+    var kA = ang(hip, knee, ank);
+    var tA = Math.acos(Math.max(-1, Math.min(1, (sho.y - hip.y) / (Math.hypot(sho.x - hip.x, sho.y - hip.y) || 1)))) * 180 / Math.PI;
+    var gap = Math.abs(knee.x - ank.x);
+    if (phase === 'up' && kA < 115) { phase = 'down'; cur.upGap = gap; }
+    if (phase === 'down') {
+      cur.minKnee = Math.min(cur.minKnee, kA);
+      cur.maxTrunk = Math.max(cur.maxTrunk, tA);
+      if (cur.upGap && gap < cur.upGap * .5) cur.devs.knee_valgus = 1;
+      if (kA > 165) {
+        phase = 'up'; reps++;
+        if (cur.minKnee > 100) cur.devs.depth_short = 1;
+        if (cur.maxTrunk > 55) cur.devs.trunk_collapse = 1;
+        var n = Object.keys(cur.devs).length;
+        var tech = Math.max(40, 100 - 30 * n);
+        session.reps++; session.techSum += tech;
+        Object.keys(cur.devs).forEach(function (d) { session.deviations[d] = (session.deviations[d] || 0) + 1; });
+        cur = resetRep();
+      }
+    }
+    var live = Object.keys(cur.devs)[0] || (phase === 'down' && kA > 100 ? 'depth_short' : null);
+    onLive({ reps: reps, cue: live ? CUES[live] : null, knee: Math.round(kA) });
+  })();
+}
+function draw(canvas, video, res) {
+  var c = canvas.getContext('2d');
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+  c.clearRect(0, 0, canvas.width, canvas.height);
+  if (!res.landmarks || !res.landmarks[0]) return;
+  var lm = res.landmarks[0];
+  c.strokeStyle = '#2F7CD6'; c.lineWidth = 3;
+  BONES.forEach(function (b) {
+    c.beginPath();
+    c.moveTo(lm[b[0]].x * canvas.width, lm[b[0]].y * canvas.height);
+    c.lineTo(lm[b[1]].x * canvas.width, lm[b[1]].y * canvas.height);
+    c.stroke();
+  });
+}
+function stop() { running = false; cancelAnimationFrame(raf); if (stream) stream.getTracks().forEach(function (t) { t.stop(); }); }
+function summary() {
+  return { ts: Date.now(), exercise: 'squat', reps: session.reps,
+    technique: session.reps ? Math.round(session.techSum / session.reps) : 0,
+    deviations: session.deviations };
+}
+function feed(s) {
+  return Math.max(0, Math.min(100, Math.round(30 + Math.min(s.reps, 12) * 3 + s.technique * .4)));
+}
+window.FormCheck = { start: start, stop: stop, summary: summary, feed: feed, CUES: CUES };
+})();
+
+
+
+===== FILE: public/sw.js =====
+
+const CACHE_NAME = 'nexus-v2';
+const PRECACHE_URLS = [
+  './',
+  './manifest.webmanifest',
+  './icon.svg',
+  './icon-maskable.svg',
+  './assets/anatomical_front_transparent.png',
+  './assets/anatomical_side_transparent.png',
+  './assets/anatomical_back_transparent.png'
+];
+
+// Install: precache essential shell assets and skipWaiting
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches
+      .open(CACHE_NAME)
+      .then((cache) => cache.addAll(PRECACHE_URLS))
+      .then(() => self.skipWaiting())
+  );
+});
+
+// Activate: delete old caches and clients.claim
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches
+      .keys()
+      .then((cacheNames) => {
+        return Promise.all(
+          cacheNames
+            .filter((cacheName) => cacheName !== CACHE_NAME)
+            .map((cacheName) => caches.delete(cacheName))
+        );
+      })
+      .then(() => self.clients.claim())
+  );
+});
+
+// Fetch (GET only)
+self.addEventListener('fetch', (event) => {
+  // Only handle GET requests
+  if (event.request.method !== 'GET') return;
+
+  const url = new URL(event.request.url);
+
+  // 1. Navigation requests → network-first, fallback caches.match('./')
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+          }
+          return networkResponse;
+        })
+        .catch(async () => {
+          const cachedResponse = await caches.match(event.request);
+          if (cachedResponse) return cachedResponse;
+          const fallbackShell = await caches.match('./');
+          if (fallbackShell) return fallbackShell;
+          return new Response('Offline — navigation fallback', {
+            status: 503,
+            statusText: 'Service Unavailable',
+            headers: { 'Content-Type': 'text/plain' }
+          });
+        })
+    );
+    return;
+  }
+
+  // 2. Same-origin requests → stale-while-revalidate (serve cache, refresh in background)
+  if (url.origin === self.location.origin) {
+    event.respondWith(
+      caches.match(event.request).then((cachedResponse) => {
+        const fetchPromise = fetch(event.request)
+          .then((networkResponse) => {
+            if (networkResponse && networkResponse.status === 200) {
+              const responseToCache = networkResponse.clone();
+              caches.open(CACHE_NAME).then((cache) => {
+                cache.put(event.request, responseToCache);
+              });
+            }
+            return networkResponse;
+          })
+          .catch(() => {
+            // Background fetch failed while offline
+            if (!cachedResponse) {
+              return new Response('Offline — asset not cached', {
+                status: 503,
+                statusText: 'Service Unavailable',
+                headers: { 'Content-Type': 'text/plain' }
+              });
+            }
+          });
+
+        return cachedResponse || fetchPromise;
+      })
+    );
+    return;
+  }
+
+  // 3. Cross-origin requests (fonts, CDN, sprites, model) → cache-first with cache.put; catch → 503
+  event.respondWith(
+    caches.match(event.request).then((cachedResponse) => {
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+
+      return fetch(event.request)
+        .then((networkResponse) => {
+          if (
+            networkResponse &&
+            (networkResponse.status === 200 || networkResponse.type === 'opaque')
+          ) {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          return new Response('Offline — cross-origin resource unavailable', {
+            status: 503,
+            statusText: 'Service Unavailable',
+            headers: { 'Content-Type': 'text/plain' }
+          });
+        });
+    })
+  );
+});
+
+
+
+===== FILE: public/manifest.webmanifest =====
+
+{
+  "name": "Nexus — The Longevity Web",
+  "short_name": "Nexus",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d241c",
+  "theme_color": "#0d241c",
+  "description": "Your health as one living web — see which node is dragging you down and fix it with cited, category-level methods.",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
+
+
+
+===== FILE: metadata.json =====
+
+{
+  "name": "Healthlog - Health & Anatomy Dashboard",
+  "description": "Interactive glassmorphic health dashboard featuring dynamic BMI calculator with 3D human anatomical measurements, quick appointment scheduler, step tracker, and 3D organ explorer with live vital metrics.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
+

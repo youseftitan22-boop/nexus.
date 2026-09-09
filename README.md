@@ -1,11 +1,54 @@
-<div align="center">
+# Nexus — The Longevity Web
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+An offline-first, privacy-first biological telemetry visualization and longevity protocol optimization cockpit.
 
-  <h1>Built with AI Studio</h2>
+---
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+## 🛠️ Run & Development Steps
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+```bash
+# 1. Install dependencies
+npm install
 
-</div>
+# 2. Run local development server (Express + Vite)
+npm run dev
+
+# App runs at: http://localhost:3000
+```
+
+---
+
+## 🚀 Build & Production Deployment
+
+```bash
+# 1. Typecheck & lint validation
+npm run lint
+
+# 2. Production build (Vite + esbuild bundled server)
+npm run build
+
+# 3. Start production server
+npm start
+```
+
+### Static / Netlify Deployment
+- Deployment configuration files: `public/_headers` (CSP, HSTS, Permissions-Policy) & `public/_redirects` (SPA fallback).
+
+---
+
+## 🧪 Testing & Validation
+
+```bash
+# Validate TypeScript compilation without emitting files
+npm run lint
+
+# Compile and verify bundle integrity
+npm run build
+```
+
+---
+
+## 🛡️ Privacy & Compliance
+- **Zero Telemetry Upload**: All video processing and biometric state calculations are executed on the user's local device.
+- **Local Vault**: AES-GCM-256 Web Crypto API zero-knowledge encryption.
+- **Regulatory Disclaimer**: Nexus Longevity is an informational biological telemetry visualization and optimization tool. It does not provide medical advice, diagnosis, treatment, or cures. Always consult a qualified healthcare professional before beginning any new protocol or exercise program.

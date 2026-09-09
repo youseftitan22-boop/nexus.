@@ -1,0 +1,21 @@
+{
+  "name": "Healthlog - Health & Anatomy Dashboard",
+  "short_name": "Healthlog",
+  "description": "Interactive glassmorphic health dashboard with real-time biometric telemetry, 3D anatomy, and on-device Form Check coach.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0B1613",
+  "theme_color": "#0B1613",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='36' fill='%230B1613'/%3E%3Ccircle cx='96' cy='96' r='60' fill='%23E8B04B'/%3E%3Ccircle cx='96' cy='96' r='36' fill='%230B1613'/%3E%3Ccircle cx='96' cy='96' r='16' fill='%237FA894'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='96' fill='%230B1613'/%3E%3Ccircle cx='256' cy='256' r='160' fill='%23E8B04B'/%3E%3Ccircle cx='256' cy='256' r='96' fill='%230B1613'/%3E%3Ccircle cx='256' cy='256' r='42' fill='%237FA894'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}

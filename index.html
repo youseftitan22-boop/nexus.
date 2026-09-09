@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Nexus — The Longevity Web</title>
+    <meta name="description" content="Your health as one living web — see which node is dragging you down and fix it with cited, category-level methods." />
+    <meta name="theme-color" content="#0d241c" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Nexus" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="preload" href="/assets/anatomical_front_transparent.png" as="image" fetchpriority="high" />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,500&display=swap" rel="stylesheet">
+    <script>
+      // Immediate Service Worker cleanup to prevent stale cache lockups in preview
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(regs) {
+          for (var r of regs) { r.unregister(); }
+        }).catch(function() {});
+      }
+
+      // Crash-Proof Never-Blank Boot Watchdog
+      window.__nexus_booted = false;
+      function renderInlineBootError(msg, stack) {
+        var root = document.getElementById('root');
+        if (!root || window.__nexus_booted) return;
+        root.innerHTML = '<main style="min-height:100vh;background-color:#0B1613;color:#F5F1E8;display:flex;align-items:center;justify-content:center;padding:24px;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">' +
+          '<div style="max-width:540px;width:100%;background-color:#16241F;border:1px solid rgba(193,85,59,0.5);border-radius:20px;padding:28px;box-shadow:0 20px 40px rgba(0,0,0,0.5);">' +
+          '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">' +
+          '<div style="width:36px;height:36px;border-radius:10px;background-color:rgba(193,85,59,0.2);color:#C1553B;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:18px;">!</div>' +
+          '<h1 style="font-size:18px;font-weight:700;color:#F5F1E8;margin:0;">Boot failed: ' + (msg || 'Unknown runtime error') + '</h1>' +
+          '</div>' +
+          '<p style="font-size:13px;color:#7FA894;line-height:1.6;margin:0 0 20px 0;">The application encountered an exception during boot. Telemetry state has been preserved. You can refresh or reset local cache safely.</p>' +
+          (stack ? '<pre style="background-color:#0B1613;border:1px solid rgba(127,168,148,0.2);border-radius:12px;padding:12px;font-size:11px;color:#E8B04B;overflow-x:auto;max-height:160px;margin-bottom:20px;font-family:monospace;">' + stack + '</pre>' : '') +
+          '<div style="display:flex;gap:12px;flex-wrap:wrap;">' +
+          '<button onclick="window.location.reload()" style="background-color:#E8B04B;color:#0B1613;border:none;font-weight:700;font-size:13px;padding:10px 18px;border-radius:12px;cursor:pointer;">Reload Nexus</button>' +
+          '<button onclick="localStorage.clear();sessionStorage.clear();window.location.reload()" style="background-color:transparent;color:#7FA894;border:1px solid rgba(127,168,148,0.4);font-size:13px;padding:10px 18px;border-radius:12px;cursor:pointer;">Clear Cache & Reset</button>' +
+          '</div></div></main>';
+      }
+
+      window.addEventListener('error', function(e) {
+        if (e && e.message && (
+          e.message.indexOf('ResizeObserver loop completed with undelivered notifications') !== -1 ||
+          e.message.indexOf('ResizeObserver loop limit exceeded') !== -1
+        )) {
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          return;
+        }
+        if (!window.__nexus_booted) {
+          renderInlineBootError(e.message, e.error && e.error.stack);
+        }
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        if (!window.__nexus_booted) {
+          renderInlineBootError(e.reason && (e.reason.message || String(e.reason)), e.reason && e.reason.stack);
+        }
+      });
+    </script>
+  </head>
+  <body style="background-color: #0B1613; color: #F5F1E8; margin: 0; min-height: 100vh;" class="bg-[#0B1613] text-[#F5F1E8] font-['IBM_Plex_Sans',sans-serif] antialiased selection:bg-[#E8B04B] selection:text-[#0B1613] min-h-screen">
+    <a href="#main-content" style="position: absolute; overflow: hidden; clip: rect(0, 0, 0, 0); height: 1px; width: 1px; margin: -1px; padding: 0; border: 0;" class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-[#E8B04B] focus:text-[#0B1613] focus:font-bold focus:rounded-xl focus:shadow-2xl">
+      Skip to main content
+    </a>
+    <div id="root" style="min-height: 100vh;">
+      <main style="min-height: 100vh; background-color: #0B1613; color: #F5F1E8; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        <div style="width: 56px; height: 56px; border-radius: 16px; background-color: #16241F; border: 1px solid rgba(127, 168, 148, 0.3); display: flex; align-items: center; justify-content: center; margin-bottom: 20px; box-shadow: 0 0 30px rgba(232, 176, 75, 0.2);">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#E8B04B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="m4.93 4.93 4.24 4.24"></path>
+            <path d="m14.83 9.17 4.24-4.24"></path>
+            <path d="m14.83 14.83 4.24 4.24"></path>
+            <path d="m9.17 14.83-4.24 4.24"></path>
+            <circle cx="12" cy="12" r="4"></circle>
+          </svg>
+        </div>
+        <div style="font-size: 18px; font-weight: 700; letter-spacing: -0.02em; color: #F5F1E8; margin-bottom: 8px;">
+          Nexus — The Longevity Web
+        </div>
+        <div style="font-size: 13px; color: #7FA894; font-family: monospace;">
+          Connecting biological telemetry...
+        </div>
+      </main>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

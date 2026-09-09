@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Nexus — Anatomy Stage</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+      color: #F5F1E8;
+    }
+    #stage-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #figure-wrapper {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: grab;
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    #figure-wrapper:active {
+      cursor: grabbing;
+    }
+    #figure-img {
+      max-height: 90%;
+      max-width: 85%;
+      object-fit: contain;
+      pointer-events: none;
+      filter: brightness(1.1) contrast(1.1) drop-shadow(0 0 25px rgba(127, 168, 148, 0.3));
+      transition: opacity 0.25s ease;
+    }
+    #web-overlay-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .node-hotspot {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      z-index: 20;
+      cursor: pointer;
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 12px;
+      background: rgba(11, 22, 19, 0.88);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(127, 168, 148, 0.4);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+      transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .node-hotspot:hover {
+      transform: translate(-50%, -50%) scale(1.1);
+      border-color: #E8B04B;
+      box-shadow: 0 0 16px rgba(232, 176, 75, 0.4);
+    }
+    .node-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #7FA894;
+      box-shadow: 0 0 8px currentColor;
+    }
+    .node-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: #F5F1E8;
+      font-family: monospace;
+    }
+    .node-val {
+      font-size: 10px;
+      font-weight: 700;
+      color: #7FA894;
+    }
+    /* Strain colors */
+    .strained .node-dot { background: #C1553B; color: #C1553B; }
+    .strained .node-val { color: #C1553B; }
+    .strained { border-color: rgba(193, 85, 59, 0.6); }
+
+    .moderate .node-dot { background: #E8B04B; color: #E8B04B; }
+    .moderate .node-val { color: #E8B04B; }
+    .moderate { border-color: rgba(232, 176, 75, 0.6); }
+
+    .optimal .node-dot { background: #7FA894; color: #7FA894; }
+    .optimal .node-val { color: #7FA894; }
+    .optimal { border-color: rgba(127, 168, 148, 0.6); }
+
+    /* Controls Bar */
+    #controls-bar {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 9999px;
+      background: rgba(22, 36, 31, 0.92);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(127, 168, 148, 0.3);
+      z-index: 30;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+    .btn-ctrl {
+      background: transparent;
+      border: none;
+      color: #7FA894;
+      font-size: 10px;
+      font-weight: 700;
+      font-family: monospace;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: all 0.2s ease;
+    }
+    .btn-ctrl:hover {
+      color: #F5F1E8;
+      background: rgba(127, 168, 148, 0.15);
+    }
+    .btn-ctrl.active {
+      background: #E8B04B;
+      color: #0B1613;
+      box-shadow: 0 0 12px rgba(232, 176, 75, 0.4);
+    }
+    .divider {
+      width: 1px;
+      height: 12px;
+      background: rgba(127, 168, 148, 0.25);
+    }
+  </style>
+</head>
+<body>
+  <div id="stage-container">
+    <!-- SVG Web Topology Lines -->
+    <svg id="web-overlay-svg" viewBox="0 0 460 520" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <radialGradient id="plinthGlow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#7FA894" stopOpacity="0.3" />
+          <stop offset="60%" stopColor="#E8B04B" stopOpacity="0.1" />
+          <stop offset="100%" stopColor="#0B1613" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <!-- Base Plinth -->
+      <ellipse cx="230" cy="485" rx="100" ry="14" fill="url(#plinthGlow)" />
+      <ellipse cx="230" cy="485" rx="90" ry="11" fill="none" stroke="#7FA894" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.6" />
+      <ellipse cx="230" cy="485" rx="60" ry="7" fill="none" stroke="#E8B04B" stroke-width="1" stroke-dasharray="2 2" opacity="0.5" />
+
+      <!-- Interconnecting Web Edges -->
+      <g id="edges-group">
+        <line x1="110" y1="90" x2="340" y2="105" stroke="#C1553B" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.8" />
+        <line x1="110" y1="90" x2="85" y2="200" stroke="#C1553B" stroke-width="1.5" stroke-dasharray="2 2" opacity="0.8" />
+        <line x1="85" y1="200" x2="100" y2="320" stroke="#7FA894" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.8" />
+        <line x1="340" y1="105" x2="360" y2="220" stroke="#7FA894" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.8" />
+        <line x1="360" y1="220" x2="350" y2="340" stroke="#7FA894" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.8" />
+        <line x1="100" y1="320" x2="350" y2="340" stroke="#7FA894" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.8" />
+        <line x1="85" y1="200" x2="360" y2="220" stroke="#E8B04B" stroke-width="1" stroke-dasharray="2 2" opacity="0.4" />
+      </g>
+    </svg>
+
+    <!-- Figure Display with Drag Orbit -->
+    <div id="figure-wrapper">
+      <img id="figure-img" src="/assets/anatomical_front_transparent.png" alt="Nexus Anatomical Figure">
+    </div>
+
+    <!-- 6 Hotspots for Front View -->
+    <div id="hotspots-container">
+      <div class="node-hotspot strained" style="top: 17%; left: 24%;" data-id="sleep">
+        <div class="node-dot"></div>
+        <span class="node-label">Sleep</span>
+        <span class="node-val">42%</span>
+      </div>
+      <div class="node-hotspot optimal" style="top: 20%; left: 74%;" data-id="stress">
+        <div class="node-dot"></div>
+        <span class="node-label">Stress</span>
+        <span class="node-val">82%</span>
+      </div>
+      <div class="node-hotspot strained" style="top: 38%; left: 18%;" data-id="readiness">
+        <div class="node-dot"></div>
+        <span class="node-label">Ready</span>
+        <span class="node-val">48%</span>
+      </div>
+      <div class="node-hotspot optimal" style="top: 42%; left: 78%;" data-id="hrv">
+        <div class="node-dot"></div>
+        <span class="node-label">HRV</span>
+        <span class="node-val">76%</span>
+      </div>
+      <div class="node-hotspot moderate" style="top: 62%; left: 22%;" data-id="nutrition">
+        <div class="node-dot"></div>
+        <span class="node-label">Gut</span>
+        <span class="node-val">68%</span>
+      </div>
+      <div class="node-hotspot optimal" style="top: 66%; left: 76%;" data-id="movement">
+        <div class="node-dot"></div>
+        <span class="node-label">Force</span>
+        <span class="node-val">88%</span>
+      </div>
+    </div>
+
+    <!-- Control Bar -->
+    <div id="controls-bar">
+      <button class="btn-ctrl active" id="btn-front">Front</button>
+      <button class="btn-ctrl" id="btn-side">Side</button>
+      <button class="btn-ctrl" id="btn-back">Back</button>
+      <div class="divider"></div>
+      <button class="btn-ctrl" id="btn-rotate">Rotate</button>
+      <button class="btn-ctrl" id="btn-zoom">Zoom</button>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const views = {
+        FRONT: '/assets/anatomical_front_transparent.png',
+        SIDE: '/assets/anatomical_side_transparent.png',
+        BACK: '/assets/anatomical_back_transparent.png'
+      };
+
+      const fallbackViews = {
+        FRONT: '/assets/anatomical_front.jpg',
+        SIDE: '/assets/anatomical_side.jpg',
+        BACK: '/assets/anatomical_back.jpg'
+      };
+
+      let currentAngle = 'FRONT';
+      let isRotating = false;
+      let isZoomed = false;
+      let rotateInterval = null;
+
+      const imgEl = document.getElementById('figure-img');
+      const wrapperEl = document.getElementById('figure-wrapper');
+      const hotspotsContainer = document.getElementById('hotspots-container');
+      const edgesGroup = document.getElementById('edges-group');
+
+      const btnFront = document.getElementById('btn-front');
+      const btnSide = document.getElementById('btn-side');
+      const btnBack = document.getElementById('btn-back');
+      const btnRotate = document.getElementById('btn-rotate');
+      const btnZoom = document.getElementById('btn-zoom');
+
+      // Image Fallback Handler
+      imgEl.onerror = function() {
+        if (imgEl.src !== fallbackViews[currentAngle]) {
+          imgEl.src = fallbackViews[currentAngle];
+        }
+      };
+
+      function setAngle(angle) {
+        currentAngle = angle;
+        btnFront.classList.toggle('active', angle === 'FRONT' && !isRotating);
+        btnSide.classList.toggle('active', angle === 'SIDE' && !isRotating);
+        btnBack.classList.toggle('active', angle === 'BACK' && !isRotating);
+
+        imgEl.style.opacity = '0.4';
+        setTimeout(() => {
+          imgEl.src = views[angle] || fallbackViews[angle];
+          imgEl.style.opacity = '1';
+        }, 80);
+
+        // Hotspots are calibrated for FRONT view
+        hotspotsContainer.style.display = angle === 'FRONT' ? 'block' : 'none';
+        edgesGroup.style.display = angle === 'FRONT' ? 'block' : 'none';
+      }
+
+      btnFront.addEventListener('click', () => { stopRotate(); setAngle('FRONT'); });
+      btnSide.addEventListener('click', () => { stopRotate(); setAngle('SIDE'); });
+      btnBack.addEventListener('click', () => { stopRotate(); setAngle('BACK'); });
+
+      function toggleRotate() {
+        isRotating = !isRotating;
+        btnRotate.classList.toggle('active', isRotating);
+        if (isRotating) {
+          rotateInterval = setInterval(() => {
+            if (currentAngle === 'FRONT') setAngle('SIDE');
+            else if (currentAngle === 'SIDE') setAngle('BACK');
+            else setAngle('FRONT');
+          }, 1800);
+        } else {
+          stopRotate();
+        }
+      }
+
+      function stopRotate() {
+        isRotating = false;
+        btnRotate.classList.remove('active');
+        if (rotateInterval) {
+          clearInterval(rotateInterval);
+          rotateInterval = null;
+        }
+        btnFront.classList.toggle('active', currentAngle === 'FRONT');
+        btnSide.classList.toggle('active', currentAngle === 'SIDE');
+        btnBack.classList.toggle('active', currentAngle === 'BACK');
+      }
+
+      btnRotate.addEventListener('click', toggleRotate);
+
+      btnZoom.addEventListener('click', () => {
+        isZoomed = !isZoomed;
+        btnZoom.classList.toggle('active', isZoomed);
+        wrapperEl.style.transform = isZoomed ? 'scale(1.2)' : 'scale(1)';
+      });
+
+      // Mouse drag to orbit
+      let startX = 0;
+      let isDragging = false;
+
+      wrapperEl.addEventListener('pointerdown', (e) => {
+        isDragging = true;
+        startX = e.clientX;
+        stopRotate();
+      });
+
+      window.addEventListener('pointermove', (e) => {
+        if (!isDragging) return;
+        const diffX = e.clientX - startX;
+        if (Math.abs(diffX) > 60) {
+          if (diffX > 0) {
+            setAngle(currentAngle === 'FRONT' ? 'BACK' : currentAngle === 'BACK' ? 'SIDE' : 'FRONT');
+          } else {
+            setAngle(currentAngle === 'FRONT' ? 'SIDE' : currentAngle === 'SIDE' ? 'BACK' : 'FRONT');
+          }
+          startX = e.clientX;
+        }
+      });
+
+      window.addEventListener('pointerup', () => {
+        isDragging = false;
+      });
+
+      // Hotspot click postMessage
+      document.querySelectorAll('.node-hotspot').forEach((el) => {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const nodeId = el.getAttribute('data-id');
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'node-tap', id: nodeId }, '*');
+          }
+        });
+      });
+
+      // Window Message Listener for setWeb payload
+      window.addEventListener('message', (e) => {
+        if (!e.data) return;
+        if (e.data.type === 'setWeb' && e.data.payload) {
+          const payload = e.data.payload;
+          if (Array.isArray(payload.nodes)) {
+            payload.nodes.forEach((node) => {
+              const el = document.querySelector(`.node-hotspot[data-id="${node.id}"]`);
+              if (el) {
+                const valEl = el.querySelector('.node-val');
+                if (valEl && typeof node.level === 'number') {
+                  valEl.textContent = node.level + '%';
+                }
+                el.classList.remove('strained', 'moderate', 'optimal');
+                if (node.level < 50) el.classList.add('strained');
+                else if (node.level < 70) el.classList.add('moderate');
+                else el.classList.add('optimal');
+              }
+            });
+          }
+        }
+      });
+
+      // Signal ready
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'stage-ready' }, '*');
+      }
+    })();
+  </script>
+</body>
+</html>

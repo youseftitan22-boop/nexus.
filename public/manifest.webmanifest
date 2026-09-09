@@ -1,0 +1,16 @@
+{
+  "name": "Nexus — The Longevity Web",
+  "short_name": "Nexus",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d241c",
+  "theme_color": "#0d241c",
+  "description": "Your health as one living web — see which node is dragging you down and fix it with cited, category-level methods.",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <radialGradient id="centerGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#E8B04B" stop-opacity="0.8"/>
+      <stop offset="60%" stop-color="#E8B04B" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#0d241c" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Rounded Square Background -->
+  <rect width="512" height="512" rx="112" fill="#0d241c"/>
+
+  <!-- Web Outer Hexagonal Connecting Edges -->
+  <g stroke="#7FA894" stroke-width="4" stroke-opacity="0.5" stroke-dasharray="6,4">
+    <line x1="396" y1="256" x2="326" y2="377" />
+    <line x1="326" y1="377" x2="186" y2="377" />
+    <line x1="186" y1="377" x2="116" y2="256" />
+    <line x1="116" y1="256" x2="186" y2="135" />
+    <line x1="186" y1="135" x2="326" y2="135" />
+    <line x1="326" y1="135" x2="396" y2="256" />
+  </g>
+
+  <!-- Central Spoke Edges to Marrow Node -->
+  <g stroke="#E8B04B" stroke-width="3" stroke-opacity="0.6">
+    <line x1="256" y1="256" x2="396" y2="256" />
+    <line x1="256" y1="256" x2="326" y2="377" />
+    <line x1="256" y1="256" x2="186" y2="377" />
+    <line x1="256" y1="256" x2="116" y2="256" />
+    <line x1="256" y1="256" x2="186" y2="135" />
+    <line x1="256" y1="256" x2="326" y2="135" />
+  </g>
+
+  <!-- Central Marrow Glow -->
+  <circle cx="256" cy="256" r="64" fill="url(#centerGlow)"/>
+
+  <!-- 6 Lichen-Green Nodes -->
+  <g fill="#7FA894">
+    <!-- Node 1 (East) -->
+    <circle cx="396" cy="256" r="18" stroke="#0d241c" stroke-width="3"/>
+    <circle cx="396" cy="256" r="8" fill="#F5F1E8"/>
+
+    <!-- Node 2 (South-East) -->
+    <circle cx="326" cy="377" r="18" stroke="#0d241c" stroke-width="3"/>
+    <circle cx="326" cy="377" r="8" fill="#F5F1E8"/>
+
+    <!-- Node 3 (South-West) -->
+    <circle cx="186" cy="377" r="18" stroke="#0d241c" stroke-width="3"/>
+    <circle cx="186" cy="377" r="8" fill="#F5F1E8"/>
+
+    <!-- Node 4 (West) -->
+    <circle cx="116" cy="256" r="18" stroke="#0d241c" stroke-width="3"/>
+    <circle cx="116" cy="256" r="8" fill="#F5F1E8"/>
+
+    <!-- Node 5 (North-West) -->
+    <circle cx="186" cy="135" r="18" stroke="#0d241c" stroke-width="3"/>
+    <circle cx="186" cy="135" r="8" fill="#F5F1E8"/>
+
+    <!-- Node 6 (North-East) -->
+    <circle cx="326" cy="135" r="18" stroke="#0d241c" stroke-width="3"/>
+    <circle cx="326" cy="135" r="8" fill="#F5F1E8"/>
+  </g>
+
+  <!-- Center Marrow Node (Amber / Gold) -->
+  <circle cx="256" cy="256" r="32" fill="#E8B04B" filter="url(#glow)" stroke="#0d241c" stroke-width="4"/>
+  <circle cx="256" cy="256" r="18" fill="#F5F1E8"/>
+  <circle cx="256" cy="256" r="8" fill="#E8B04B"/>
+</svg>
