@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { getDracoLoader, getOptimizedGLTFLoader } from './dracoLoaderManager';
 
 export interface RankTier {
@@ -97,90 +98,83 @@ export const NEXUS_WEBGL_CONFIG = {
 };
 
 /**
- * Classifies anatomical mesh node names into standardized anatomical layer categories.
- * Explicitly routes internal organ terms ('heart', 'liver', 'lung', 'stomach', 'kidney', 'gut', 'viscera', 'organ')
- * to 'organs' so no organ components are left categorized as 'other' or 'muscular'.
+ * Strict regex/keyword mapping for anatomical mesh categorization.
+ * Ensures skeletal, muscular, organs, vascular, and skin meshes are uniquely identified.
  */
-export function getMeshCategory(rawName: string = ''): string {
-  const name = (rawName || '').toLowerCase().trim();
+export function getMeshCategory(meshName: string = ''): string {
+  const name = (meshName || '').toLowerCase();
+  if (name.match(/bone|rib|skull|spine|femur|clavicle|skelet|joint|vertebra/)) return 'skeletal';
+  if (name.match(/muscle|musc|bicep|pectoral|deltoid|glute|tendon|flexor/)) return 'muscular';
+  if (name.match(/heart|lung|liver|stomach|kidney|brain|organ|intestine|viscera/)) return 'organs';
+  if (name.match(/vein|artery|vascular|vessel|aorta/)) return 'vascular';
+  if (name.match(/skin|dermis|integument|surface/)) return 'skin';
+  return 'other';
+}
 
-  // 1. Internal organ terms explicitly routed to 'organs'
-  if (
-    name.includes('heart') ||
-    name.includes('liver') ||
-    name.includes('lung') ||
-    name.includes('stomach') ||
-    name.includes('kidney') ||
-    name.includes('gut') ||
-    name.includes('viscera') ||
-    name.includes('organ') ||
-    name.includes('brain') ||
-    name.includes('cortex') ||
-    name.includes('stem') ||
-    name.includes('adrenal') ||
-    name.includes('gallbladder') ||
-    name.includes('parenchyma') ||
-    name.includes('gastric')
-  ) {
-    return 'organs';
+/**
+ * Strict Layer Isolation Pass:
+ * Before applying any active layer filter, traverse the scene and explicitly set
+ * node.visible = false on every single mesh in the model (unless 'Full body' is selected).
+ */
+export function switchAnatomicalLayer(selectedLayer: string, customModel?: any) {
+  if (typeof window !== 'undefined' && typeof (window as any).switchAnatomicalLayer === 'function' && !customModel) {
+    (window as any).switchAnatomicalLayer(selectedLayer);
+    return;
+  }
+  const target = (selectedLayer || '').toLowerCase().trim();
+  const model = customModel || (typeof window !== 'undefined' && ((window as any).__THREE_MODEL__ || (window as any).sceneRef?.current));
+  if (!model) return;
+
+  // Hard Visibility Reset Pass
+  if (target !== 'full body') {
+    model.traverse?.((node: any) => {
+      if (node?.isMesh) {
+        node.visible = false;
+      }
+    });
   }
 
-  // 2. Vascular terms
-  if (
-    name.includes('vasc') ||
-    name.includes('aorta') ||
-    name.includes('arter') ||
-    name.includes('vein') ||
-    name.includes('vena') ||
-    name.includes('vessel') ||
-    name.includes('coronary') ||
-    name.includes('capillar') ||
-    name.includes('blood')
-  ) {
-    return 'vascular';
-  }
+  model.traverse?.((node: any) => {
+    if (node?.isMesh) {
+      const mesh = node;
+      const category = (mesh.userData?.category || getMeshCategory(mesh.name)).toLowerCase();
+      if (target === 'full body') {
+        mesh.visible = true;
+      } else {
+        // Strict equality check: ONLY visible if category matches target exactly
+        mesh.visible = (category === target);
+      }
+    }
+  });
 
-  // 3. Skeletal terms
-  if (
-    name.includes('skelet') ||
-    name.includes('bone') ||
-    name.includes('rib') ||
-    name.includes('spine') ||
-    name.includes('vertebra') ||
-    name.includes('cartilage') ||
-    name.includes('trachea') ||
-    name.includes('skull') ||
-    name.includes('pelvi') ||
-    name.includes('femur')
-  ) {
-    return 'skeletal';
+  if (typeof (window as any)?.requestRender === 'function') {
+    (window as any).requestRender();
   }
+}
 
-  // 4. Muscular terms
-  if (
-    name.includes('musc') ||
-    name.includes('myo') ||
-    name.includes('tendon') ||
-    name.includes('bicep') ||
-    name.includes('tricep') ||
-    name.includes('deltoid') ||
-    name.includes('pectoral') ||
-    name.includes('glute')
-  ) {
-    return 'muscular';
+export const setActiveAnatomicalLayer = switchAnatomicalLayer;
+
+// =========================================================================
+// BIOMETRIC STRAIN DATA MODEL & HEATMAP COLOR INTERPOLATION
+// =========================================================================
+export const biometricData: Record<string, number> = {
+  pectorals: 85,  // High strain -> Red
+  quadriceps: 40, // Moderate fatigue -> Yellow
+  biceps: 10,     // Recovered -> Green
+  abs: 0          // Baseline -> Normal tissue material
+};
+
+export function getHeatmapColor(score: number): THREE.Color {
+  const normalized = Math.min(Math.max(score, 0), 100) / 100;
+  const color = new THREE.Color();
+  if (normalized < 0.5) {
+    // Green to Yellow
+    color.lerpColors(new THREE.Color(0x22c55e), new THREE.Color(0xeab308), normalized * 2);
+  } else {
+    // Yellow to Red
+    color.lerpColors(new THREE.Color(0xeab308), new THREE.Color(0xef4444), (normalized - 0.5) * 2);
   }
-
-  // 5. Skin terms
-  if (
-    name.includes('skin') ||
-    name.includes('dermis') ||
-    name.includes('epidermis') ||
-    name.includes('integument')
-  ) {
-    return 'skin';
-  }
-
-  return 'organs'; // Default fallback ensures no organ components are left categorized as 'other' or 'muscular'
+  return color;
 }
 
 declare global {
@@ -194,15 +188,31 @@ declare global {
       getDracoLoader?: typeof getDracoLoader;
       getOptimizedGLTFLoader?: typeof getOptimizedGLTFLoader;
       getMeshCategory?: typeof getMeshCategory;
+      switchAnatomicalLayer?: (selectedLayer: string, customModel?: any) => void;
       setActiveAnatomicalLayer?: (targetCategory: string) => void;
+      biometricData?: typeof biometricData;
+      getHeatmapColor?: typeof getHeatmapColor;
+      applyBiometricHeatmap?: (data?: Record<string, number>) => void;
+      resetHeatmap?: () => void;
+      requestRender?: () => void;
     };
+    switchAnatomicalLayer?: (selectedLayer: string, customModel?: any) => void;
     setActiveAnatomicalLayer?: (targetCategory: string) => void;
     getMeshCategory?: typeof getMeshCategory;
+    biometricData?: typeof biometricData;
+    getHeatmapColor?: typeof getHeatmapColor;
+    applyBiometricHeatmap?: (data?: Record<string, number>) => void;
+    resetHeatmap?: () => void;
+    requestRender?: () => void;
   }
 }
 
 if (typeof window !== 'undefined') {
   window.getMeshCategory = getMeshCategory;
+  window.biometricData = biometricData;
+  window.getHeatmapColor = getHeatmapColor;
+  window.switchAnatomicalLayer = switchAnatomicalLayer;
+  window.setActiveAnatomicalLayer = switchAnatomicalLayer;
   window.NexusEngine = {
     RANKS,
     computeRank,
@@ -211,6 +221,13 @@ if (typeof window !== 'undefined') {
     webglConfig: NEXUS_WEBGL_CONFIG,
     getDracoLoader,
     getOptimizedGLTFLoader,
-    getMeshCategory
+    getMeshCategory,
+    switchAnatomicalLayer,
+    setActiveAnatomicalLayer: switchAnatomicalLayer,
+    biometricData,
+    getHeatmapColor,
+    applyBiometricHeatmap: (data) => (window as any).applyBiometricHeatmap?.(data),
+    resetHeatmap: () => (window as any).resetHeatmap?.(),
+    requestRender: () => (window as any).requestRender?.()
   };
 }

@@ -59,7 +59,9 @@ export const Human3DCanvas: React.FC<HumanSilhouetteProps> = ({
 
   const handleSelectLayer = useCallback((layer: AnatomicalLayer) => {
     setActiveLayer(layer);
-    if (typeof (window as any).setActiveAnatomicalLayer === 'function') {
+    if (typeof (window as any).switchAnatomicalLayer === 'function') {
+      (window as any).switchAnatomicalLayer(layer);
+    } else if (typeof (window as any).setActiveAnatomicalLayer === 'function') {
       (window as any).setActiveAnatomicalLayer(layer);
     }
     try {

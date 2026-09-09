@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { getDracoLoader } from '../utils/dracoLoaderManager';
-import { getMeshCategory } from '../utils/nexusEngine';
+import { getMeshCategory, biometricData, getHeatmapColor } from '../utils/nexusEngine';
 import { OrganType } from '../types';
 import { ZoomIn, ZoomOut, RotateCcw, Scissors } from 'lucide-react';
 
@@ -53,12 +53,22 @@ export const Organ3DCanvas: React.FC<Organ3DCanvasProps> = ({
   const [isRotating, setIsRotating] = useState(true);
   const [visualMode, setVisualMode] = useState<VisualMode>('anatomical');
   const [activeLayer, setActiveLayer] = useState<AnatomicalLayer>('Full body');
+  const lockedLayerRef = useRef<string>('full body');
+  const isRotatingRef = useRef(isRotating);
+  isRotatingRef.current = isRotating;
+  const heartRateRef = useRef(heartRate);
+  heartRateRef.current = heartRate;
+  const activeOrganRef = useRef(activeOrgan);
+  activeOrganRef.current = activeOrgan;
+  const startTickRef = useRef<(() => void) | null>(null);
   const [slicePlane, setSlicePlane] = useState<SlicePlane>('coronal');
   const [sliceOffset, setSliceOffset] = useState<number>(0.0);
   const [selectedPin, setSelectedPin] = useState<AnatomicalPin | null>(null);
   const [hoveredPin, setHoveredPin] = useState<AnatomicalPin | null>(null);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [webglError, setWebglError] = useState<boolean>(false);
+  const [heatmapActive, setHeatmapActive] = useState<boolean>(true);
+  const [currentBiometricData, setCurrentBiometricData] = useState<Record<string, number>>(biometricData);
 
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -70,50 +80,155 @@ export const Organ3DCanvas: React.FC<Organ3DCanvasProps> = ({
   const pulseLightsRef = useRef<THREE.PointLight[]>([]);
   const clippingPlaneRef = useRef<THREE.Plane>(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0.0));
 
-  // Explicit Hard Reset Pass & Strict Anatomical System Filtering
-  const setActiveAnatomicalLayer = useCallback((targetCategory: string) => {
-    const category = targetCategory.toLowerCase().trim();
-    setActiveLayer((targetCategory as AnatomicalLayer) || 'Full body');
-
+  // Dynamic Biometric Heatmap System (0-100 strain scale recoloring)
+  const applyBiometricHeatmap = useCallback((data: Record<string, number> = biometricData) => {
     const scene = sceneRef.current;
     if (!scene) return;
+    setHeatmapActive(true);
+    setCurrentBiometricData(data);
 
-    scene.traverse((node) => {
-      if ((node as THREE.Mesh).isMesh) {
-        // 1. If 'Full body' selected, show everything
-        if (category === 'full body') {
-          node.visible = true;
-          return;
+    scene.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        const meshName = mesh.name.toLowerCase();
+        for (const [region, score] of Object.entries(data)) {
+          if (meshName.includes(region) && score > 0) {
+            // Store base color if not already saved
+            if (!mesh.userData.originalColor && (mesh.material as any)?.color) {
+              if (!mesh.userData.hasClonedMaterial) {
+                mesh.material = (mesh.material as THREE.Material).clone();
+                mesh.userData.hasClonedMaterial = true;
+              }
+              mesh.userData.originalColor = (mesh.material as any).color.clone();
+            }
+            if ((mesh.material as any)?.color) {
+              (mesh.material as any).color.copy(getHeatmapColor(score));
+            }
+          }
         }
-        // 2. Identify mesh category from stored userData or node name
-        const meshCat = (node.userData && node.userData.category) || getMeshCategory(node.name);
-        if (!node.userData) node.userData = {};
-        node.userData.category = meshCat; // Cache for performance
-        // 3. Strict toggle: set true ONLY if it matches target, false for all others
-        node.visible = (meshCat === category);
       }
     });
 
-    // Trigger an on-demand frame render to update the viewport
     if (typeof requestRenderRef.current === 'function') {
       requestRenderRef.current();
     }
   }, []);
 
-  // Expose setActiveAnatomicalLayer and getMeshCategory on window for global access and testing
+  const resetHeatmap = useCallback(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    setHeatmapActive(false);
+
+    scene.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        if (mesh.userData && mesh.userData.originalColor && (mesh.material as any)?.color) {
+          (mesh.material as any).color.copy(mesh.userData.originalColor);
+        }
+      }
+    });
+
+    if (typeof requestRenderRef.current === 'function') {
+      requestRenderRef.current();
+    }
+  }, []);
+
+  // Strict Layer Isolation Pass:
+  // Before applying any active layer filter, traverse the scene and explicitly set
+  // node.visible = false on every single mesh in the model (unless 'Full body' is selected)
+  const switchAnatomicalLayer = useCallback((selectedLayer: string, customModel?: THREE.Object3D) => {
+    const target = (selectedLayer || '').toLowerCase().trim();
+    lockedLayerRef.current = target;
+    setActiveLayer((selectedLayer as AnatomicalLayer) || 'Full body');
+
+    const model = customModel || organGroupRef.current || sceneRef.current;
+    if (!model) return;
+
+    // Hard Visibility Reset Pass:
+    // Before applying any active layer filter, traverse the scene and explicitly set node.visible = false on every single mesh in the model (unless 'Full body' is selected)
+    if (target !== 'full body') {
+      model.traverse((node) => {
+        if ((node as THREE.Mesh).isMesh) {
+          (node as THREE.Mesh).visible = false;
+        }
+      });
+      // Also reset any other meshes in the scene root if model is organGroup
+      if (sceneRef.current && sceneRef.current !== model) {
+        sceneRef.current.traverse((node) => {
+          if ((node as THREE.Mesh).isMesh) {
+            const mesh = node as THREE.Mesh;
+            const category = (mesh.userData?.category || getMeshCategory(mesh.name)).toLowerCase();
+            mesh.visible = (category === target);
+          }
+        });
+      }
+    }
+
+    model.traverse((node) => {
+      if ((node as THREE.Mesh).isMesh) {
+        const mesh = node as THREE.Mesh;
+        const category = (mesh.userData?.category || getMeshCategory(mesh.name)).toLowerCase();
+        if (target === 'full body') {
+          mesh.visible = true;
+        } else {
+          // Strict equality check: ONLY visible if category matches target exactly
+          mesh.visible = (category === target);
+        }
+      }
+    });
+
+    if (bloodFlowParticlesRef.current) {
+      bloodFlowParticlesRef.current.visible = (target === 'full body' || target === 'vascular');
+    }
+    if (pinsGroupRef.current) {
+      pinsGroupRef.current.visible = (target === 'full body' || target === 'organs');
+    }
+
+    // Trigger an on-demand frame render to update the viewport
+    if (typeof requestRenderRef.current === 'function') {
+      requestRenderRef.current();
+    }
+    if (typeof (window as any).requestRender === 'function' && (window as any).requestRender !== requestRenderRef.current) {
+      (window as any).requestRender();
+    }
+  }, []);
+
+  const setActiveAnatomicalLayer = switchAnatomicalLayer;
+
+  // Expose switchAnatomicalLayer, setActiveAnatomicalLayer, getMeshCategory, and heatmap functions on window for global access
   useEffect(() => {
-    (window as any).setActiveAnatomicalLayer = setActiveAnatomicalLayer;
+    (window as any).switchAnatomicalLayer = switchAnatomicalLayer;
+    (window as any).setActiveAnatomicalLayer = switchAnatomicalLayer;
     (window as any).getMeshCategory = getMeshCategory;
+    (window as any).biometricData = biometricData;
+    (window as any).getHeatmapColor = getHeatmapColor;
+    (window as any).applyBiometricHeatmap = applyBiometricHeatmap;
+    (window as any).resetHeatmap = resetHeatmap;
+    (window as any).requestRender = () => requestRenderRef.current?.();
+
     if (window.NexusEngine) {
-      window.NexusEngine.setActiveAnatomicalLayer = setActiveAnatomicalLayer;
+      window.NexusEngine.switchAnatomicalLayer = switchAnatomicalLayer;
+      window.NexusEngine.setActiveAnatomicalLayer = switchAnatomicalLayer;
       window.NexusEngine.getMeshCategory = getMeshCategory;
+      window.NexusEngine.biometricData = biometricData;
+      window.NexusEngine.getHeatmapColor = getHeatmapColor;
+      window.NexusEngine.applyBiometricHeatmap = applyBiometricHeatmap;
+      window.NexusEngine.resetHeatmap = resetHeatmap;
+      window.NexusEngine.requestRender = () => requestRenderRef.current?.();
     }
     return () => {
-      if ((window as any).setActiveAnatomicalLayer === setActiveAnatomicalLayer) {
+      if ((window as any).switchAnatomicalLayer === switchAnatomicalLayer) {
+        delete (window as any).switchAnatomicalLayer;
+      }
+      if ((window as any).setActiveAnatomicalLayer === switchAnatomicalLayer) {
         delete (window as any).setActiveAnatomicalLayer;
       }
+      if ((window as any).applyBiometricHeatmap === applyBiometricHeatmap) {
+        delete (window as any).applyBiometricHeatmap;
+        delete (window as any).resetHeatmap;
+      }
     };
-  }, [setActiveAnatomicalLayer]);
+  }, [switchAnatomicalLayer, applyBiometricHeatmap, resetHeatmap]);
 
   // Drag interaction state
   const isDraggingRef = useRef(false);
@@ -462,6 +577,22 @@ export const Organ3DCanvas: React.FC<Organ3DCanvasProps> = ({
       if (!isRendering) {
         isRendering = true;
         requestAnimationFrame(() => {
+          // Visibility guard: lock visibility state so background updates never override layer isolation
+          const currentTarget = lockedLayerRef.current;
+          if (currentTarget && currentTarget !== 'full body') {
+            const root = organGroupRef.current || sceneRef.current;
+            if (root) {
+              root.traverse((node) => {
+                if ((node as THREE.Mesh).isMesh) {
+                  const mesh = node as THREE.Mesh;
+                  const category = (mesh.userData?.category || getMeshCategory(mesh.name)).toLowerCase();
+                  if (mesh.visible !== (category === currentTarget)) {
+                    mesh.visible = (category === currentTarget);
+                  }
+                }
+              });
+            }
+          }
           if (rendererRef.current && sceneRef.current && cameraRef.current) {
             rendererRef.current.render(sceneRef.current, cameraRef.current);
           }
@@ -480,13 +611,30 @@ export const Organ3DCanvas: React.FC<Organ3DCanvasProps> = ({
 
     const tick = () => {
       // Completely kill loop when model is static (0% idle lag)
-      if (!isRotating && !isDraggingRef.current) {
+      if (!isRotatingRef.current && !isDraggingRef.current) {
         if (animId !== null) {
           cancelAnimationFrame(animId);
           animId = null;
         }
         requestFrame(true);
         return;
+      }
+
+      // Visibility guard: lock visibility state so background animation ticks never override layer isolation
+      const currentTarget = lockedLayerRef.current;
+      if (currentTarget && currentTarget !== 'full body') {
+        const root = organGroupRef.current || sceneRef.current;
+        if (root) {
+          root.traverse((node) => {
+            if ((node as THREE.Mesh).isMesh) {
+              const mesh = node as THREE.Mesh;
+              const category = (mesh.userData?.category || getMeshCategory(mesh.name)).toLowerCase();
+              if (mesh.visible !== (category === currentTarget)) {
+                mesh.visible = (category === currentTarget);
+              }
+            }
+          });
+        }
       }
 
       frameCounter++;
@@ -498,22 +646,22 @@ export const Organ3DCanvas: React.FC<Organ3DCanvasProps> = ({
       if (organGroupRef.current) {
         organGroupRef.current.position.y = Math.sin(elapsedTime * 1.6) * 0.04 + 0.05;
 
-        if (isRotating && !isDraggingRef.current) {
+        if (isRotatingRef.current && !isDraggingRef.current) {
           organGroupRef.current.rotation.y += 0.008;
         }
 
-        const beatsPerSec = Math.max(0.8, heartRate / 60);
+        const beatsPerSec = Math.max(0.8, heartRateRef.current / 60);
         const beatCycle = (elapsedTime * beatsPerSec * Math.PI * 2) % (Math.PI * 2);
 
         let pulseScale = 1;
 
-        if (activeOrgan === 'heart') {
+        if (activeOrganRef.current === 'heart') {
           if (beatCycle < 0.7) {
             pulseScale = 1 + Math.sin((beatCycle * Math.PI) / 0.7) * 0.08;
           } else if (beatCycle > 0.9 && beatCycle < 1.4) {
             pulseScale = 1 + Math.sin(((beatCycle - 0.9) * Math.PI) / 0.5) * 0.04;
           }
-        } else if (activeOrgan === 'lungs') {
+        } else if (activeOrganRef.current === 'lungs') {
           pulseScale = 1 + Math.sin(elapsedTime * 1.8) * 0.05;
         } else {
           pulseScale = 1 + Math.sin(elapsedTime * 2.2) * 0.02;
@@ -525,7 +673,7 @@ export const Organ3DCanvas: React.FC<Organ3DCanvasProps> = ({
           pulseScale * zoomLevelRef.current
         );
 
-        if (bloodFlowParticlesRef.current) {
+        if (bloodFlowParticlesRef.current && (lockedLayerRef.current === 'full body' || lockedLayerRef.current === 'vascular')) {
           const pos = bloodFlowParticlesRef.current.geometry.attributes.position.array as Float32Array;
           for (let i = 0; i < particleCount; i++) {
             pos[i * 3 + 1] += particleSpeeds[i];
@@ -542,14 +690,20 @@ export const Organ3DCanvas: React.FC<Organ3DCanvasProps> = ({
       requestFrame(shouldUpdateMarkers);
 
       // Re-queue loop ONLY if rotating or dragging
-      if (isRotating || isDraggingRef.current) {
+      if (isRotatingRef.current || isDraggingRef.current) {
         animId = requestAnimationFrame(tick);
       } else {
         animId = null;
       }
     };
 
-    if (isRotating) {
+    startTickRef.current = () => {
+      if (animId === null) {
+        animId = requestAnimationFrame(tick);
+      }
+    };
+
+    if (isRotatingRef.current) {
       animId = requestAnimationFrame(tick);
     } else {
       requestFrame(true);
@@ -575,7 +729,7 @@ export const Organ3DCanvas: React.FC<Organ3DCanvasProps> = ({
 
     const onMouseUp = () => {
       isDraggingRef.current = false;
-      if (!isRotating && animId !== null) {
+      if (!isRotatingRef.current && animId !== null) {
         cancelAnimationFrame(animId);
         animId = null;
       }
@@ -610,7 +764,7 @@ export const Organ3DCanvas: React.FC<Organ3DCanvasProps> = ({
 
     const onTouchEnd = () => {
       isDraggingRef.current = false;
-      if (!isRotating && animId !== null) {
+      if (!isRotatingRef.current && animId !== null) {
         cancelAnimationFrame(animId);
         animId = null;
       }
@@ -677,6 +831,7 @@ export const Organ3DCanvas: React.FC<Organ3DCanvasProps> = ({
     return () => {
       if (animId) cancelAnimationFrame(animId);
       if (resizeFrameId !== null) cancelAnimationFrame(resizeFrameId);
+      startTickRef.current = null;
       requestRenderRef.current = null;
       resizeObserver.disconnect();
       dom.removeEventListener('mousedown', onMouseDown);
@@ -692,7 +847,25 @@ export const Organ3DCanvas: React.FC<Organ3DCanvasProps> = ({
         container.removeChild(dom);
       }
     };
-  }, [heartRate, isRotating, activeOrgan]);
+  }, []);
+
+  // Sync state changes with tick loop without tearing down the WebGL scene
+  useEffect(() => {
+    isRotatingRef.current = isRotating;
+    if (isRotating && startTickRef.current) {
+      startTickRef.current();
+    } else {
+      requestRenderRef.current?.();
+    }
+  }, [isRotating]);
+
+  useEffect(() => {
+    heartRateRef.current = heartRate;
+  }, [heartRate]);
+
+  useEffect(() => {
+    activeOrganRef.current = activeOrgan;
+  }, [activeOrgan]);
 
   // Re-build 3D Organ Meshes with Memory Disposal and Frustum Culling
   useEffect(() => {
@@ -775,10 +948,13 @@ export const Organ3DCanvas: React.FC<Organ3DCanvasProps> = ({
     });
 
     // 3. Apply strict reset-then-show layer visibility
-    setActiveAnatomicalLayer(activeLayer);
+    switchAnatomicalLayer(lockedLayerRef.current);
+
+    // 4. Trigger Dynamic Biometric Heatmap on load
+    applyBiometricHeatmap(biometricData);
 
     requestRenderRef.current?.();
-  }, [activeOrgan, visualMode, slicePlane, sliceOffset, activeLayer, setActiveAnatomicalLayer]);
+  }, [activeOrgan, visualMode, slicePlane, sliceOffset, switchAnatomicalLayer, applyBiometricHeatmap]);
 
   // =========================================================================
   // LIGHTWEIGHT MESHLAMBERT MATERIAL FACTORY (Zero Fragment PBR Overhead)
@@ -830,6 +1006,7 @@ export const Organ3DCanvas: React.FC<Organ3DCanvasProps> = ({
 
   // --- CONTEXTUAL ANATOMICAL LAYERS (Muscular, Skeletal, Skin) ---
   const buildMuscularContext = (group: THREE.Group) => {
+    // 1. Intercostal / Torso Fibers
     const muscMat = new THREE.MeshLambertMaterial({
       color: 0x9e3a32,
       transparent: true,
@@ -854,6 +1031,97 @@ export const Organ3DCanvas: React.FC<Organ3DCanvasProps> = ({
       muscMesh.name = 'muscular_torso_fibers';
       muscMesh.userData = { category: 'muscular' };
       group.add(muscMesh);
+    }
+
+    // 2. Pectorals (Chest muscle plates - biometric region: pectorals)
+    const pecMat = new THREE.MeshLambertMaterial({
+      color: 0x9e3a32,
+      transparent: true,
+      opacity: 0.86,
+    });
+    const pecL = new THREE.SphereGeometry(0.34, 14, 12);
+    pecL.scale(1.1, 0.7, 0.45);
+    pecL.translate(-0.32, 0.36, 0.44);
+    const pecR = new THREE.SphereGeometry(0.34, 14, 12);
+    pecR.scale(1.1, 0.7, 0.45);
+    pecR.translate(0.32, 0.36, 0.44);
+    const pecGeo = BufferGeometryUtils.mergeGeometries([pecL, pecR]);
+    pecL.dispose();
+    pecR.dispose();
+    if (pecGeo) {
+      pecGeo.computeVertexNormals();
+      const pecMesh = new THREE.Mesh(pecGeo, pecMat);
+      pecMesh.name = 'muscular_pectorals';
+      pecMesh.userData = { category: 'muscular' };
+      group.add(pecMesh);
+    }
+
+    // 3. Quadriceps (Upper leg thigh muscles - biometric region: quadriceps)
+    const quadMat = new THREE.MeshLambertMaterial({
+      color: 0x9e3a32,
+      transparent: true,
+      opacity: 0.86,
+    });
+    const quadL = new THREE.CylinderGeometry(0.16, 0.12, 0.65, 12);
+    quadL.translate(-0.34, -0.92, 0.08);
+    const quadR = new THREE.CylinderGeometry(0.16, 0.12, 0.65, 12);
+    quadR.translate(0.34, -0.92, 0.08);
+    const quadGeo = BufferGeometryUtils.mergeGeometries([quadL, quadR]);
+    quadL.dispose();
+    quadR.dispose();
+    if (quadGeo) {
+      quadGeo.computeVertexNormals();
+      const quadMesh = new THREE.Mesh(quadGeo, quadMat);
+      quadMesh.name = 'muscular_quadriceps';
+      quadMesh.userData = { category: 'muscular' };
+      group.add(quadMesh);
+    }
+
+    // 4. Biceps (Upper arm flexor muscles - biometric region: biceps)
+    const bicMat = new THREE.MeshLambertMaterial({
+      color: 0x9e3a32,
+      transparent: true,
+      opacity: 0.86,
+    });
+    const bicL = new THREE.CylinderGeometry(0.11, 0.09, 0.48, 12);
+    bicL.rotateZ(0.22);
+    bicL.translate(-0.84, 0.18, 0.08);
+    const bicR = new THREE.CylinderGeometry(0.11, 0.09, 0.48, 12);
+    bicR.rotateZ(-0.22);
+    bicR.translate(0.84, 0.18, 0.08);
+    const bicGeo = BufferGeometryUtils.mergeGeometries([bicL, bicR]);
+    bicL.dispose();
+    bicR.dispose();
+    if (bicGeo) {
+      bicGeo.computeVertexNormals();
+      const bicMesh = new THREE.Mesh(bicGeo, bicMat);
+      bicMesh.name = 'muscular_biceps';
+      bicMesh.userData = { category: 'muscular' };
+      group.add(bicMesh);
+    }
+
+    // 5. Abs (Rectus abdominis abdominal muscle group - biometric region: abs)
+    const absMat = new THREE.MeshLambertMaterial({
+      color: 0x9e3a32,
+      transparent: true,
+      opacity: 0.86,
+    });
+    const absSegments: THREE.BufferGeometry[] = [];
+    [-0.02, -0.22, -0.42].forEach((yPos) => {
+      const segL = new THREE.BoxGeometry(0.16, 0.15, 0.08);
+      segL.translate(-0.11, yPos, 0.44);
+      const segR = new THREE.BoxGeometry(0.16, 0.15, 0.08);
+      segR.translate(0.11, yPos, 0.44);
+      absSegments.push(segL, segR);
+    });
+    const absGeo = BufferGeometryUtils.mergeGeometries(absSegments);
+    absSegments.forEach((g) => g.dispose());
+    if (absGeo) {
+      absGeo.computeVertexNormals();
+      const absMesh = new THREE.Mesh(absGeo, absMat);
+      absMesh.name = 'muscular_abs';
+      absMesh.userData = { category: 'muscular' };
+      group.add(absMesh);
     }
   };
 
@@ -1395,7 +1663,7 @@ export const Organ3DCanvas: React.FC<Organ3DCanvasProps> = ({
             <button
               key={layer}
               id={`layer-btn-${layer.toLowerCase().replace(/\s+/g, '-')}`}
-              onClick={() => setActiveAnatomicalLayer(layer)}
+              onClick={() => switchAnatomicalLayer(layer)}
               className={`whitespace-nowrap px-2.5 py-1 rounded-full text-[10px] font-bold transition-all cursor-pointer ${
                 isActive
                   ? 'bg-[#E8B04B] text-[#0B1613] shadow-xs'
@@ -1501,6 +1769,72 @@ export const Organ3DCanvas: React.FC<Organ3DCanvasProps> = ({
           </div>
         </div>
       )}
+
+      {/* Dynamic Biometric Heatmap Indicator & HUD */}
+      <div
+        id="biometric-heatmap-hud"
+        className="absolute bottom-11 left-2.5 right-2.5 flex items-center justify-between gap-2 bg-[#16241F]/90 backdrop-blur-md px-2.5 py-1 rounded-xl border border-[#7FA894]/30 text-[10px] font-['IBM_Plex_Mono',monospace] shadow-lg z-20 pointer-events-auto"
+      >
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                heatmapActive ? 'bg-[#ef4444] animate-pulse' : 'bg-[#7FA894]'
+              }`}
+            />
+            <span className="font-bold text-[#F5F1E8]">Biometric Heatmap</span>
+          </div>
+
+          <div className="flex items-center gap-1 text-[9px] shrink-0">
+            <span
+              title="Pectorals Strain (High)"
+              className="px-1.5 py-0.5 rounded bg-[#ef4444]/20 text-[#ef4444] border border-[#ef4444]/40 font-bold"
+            >
+              Pec: {currentBiometricData.pectorals ?? 85}
+            </span>
+            <span
+              title="Quadriceps Fatigue (Moderate)"
+              className="px-1.5 py-0.5 rounded bg-[#eab308]/20 text-[#eab308] border border-[#eab308]/40 font-bold"
+            >
+              Quads: {currentBiometricData.quadriceps ?? 40}
+            </span>
+            <span
+              title="Biceps Strain (Recovered)"
+              className="px-1.5 py-0.5 rounded bg-[#22c55e]/20 text-[#22c55e] border border-[#22c55e]/40 font-bold"
+            >
+              Biceps: {currentBiometricData.biceps ?? 10}
+            </span>
+            <span
+              title="Abs Strain (Baseline)"
+              className="px-1.5 py-0.5 rounded bg-[#7FA894]/20 text-[#7FA894] border border-[#7FA894]/40 font-bold"
+            >
+              Abs: {currentBiometricData.abs ?? 0}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0">
+          {heatmapActive ? (
+            <button
+              id="btn-reset-heatmap"
+              onClick={() => resetHeatmap()}
+              title="Restore original anatomical mesh colors"
+              className="px-2 py-0.5 rounded text-[9px] font-bold text-[#7FA894] hover:text-[#F5F1E8] hover:bg-white/10 cursor-pointer transition-colors border border-transparent hover:border-[#7FA894]/30"
+            >
+              Reset
+            </button>
+          ) : (
+            <button
+              id="btn-apply-heatmap"
+              onClick={() => applyBiometricHeatmap(currentBiometricData)}
+              title="Recolor anatomical meshes by strain score"
+              className="px-2 py-0.5 rounded text-[9px] font-bold bg-[#E8B04B] text-[#0B1613] hover:bg-[#d69e38] cursor-pointer transition-colors shadow-xs"
+            >
+              Apply Heatmap
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* Bottom Floating Hotspots Bar */}
       <div className="absolute bottom-2.5 left-2.5 right-2.5 flex items-center justify-between gap-2 z-20">
